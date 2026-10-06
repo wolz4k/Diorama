@@ -9,9 +9,23 @@ The tool is still under development, but it already has some features implemente
 - View level / general geometry with full texture support.
 - View the hierarchy of a scene, and change the name of special objects where possible.
 - View and edit (but not save, yet!) the transformations of objects in the scene.
-- Swap the geometry in the scene with other geometry from a .OBJ file.
+- Swap the geometry in the scene with other geometry from a .OBJ file (see "Editing a part in Blender" below).
 - Change the primary material colour
 - Toggle on/off lightmaps
+
+## Editing a part in Blender
+
+1. Select a part (click it in the viewport or the hierarchy) and press **Export mesh** in the inspector. Save as `.OBJ`: you also get an `.MTL` and the part's diffuse texture as `.DDS`, so it shows textured in Blender.
+2. In Blender, use File > Import > Wavefront (.obj) with the default axes. Edit or replace the shape.
+3. Export with File > Export > Wavefront (.obj), keeping the default axes (Y up, -Z forward) and ticking **UV Coordinates**, **Normals** and **Colors**. Triangulating faces is optional, because quads and n-gons are split on import.
+4. Back in Diorama, select the same part and press **Replace mesh**. A report lists what was imported and what was carried over from the old shape:
+   - **Bone weights** for character parts are copied from the nearest original vertex, so the new shape still follows the skeleton. Keep new geometry close to the part it replaces.
+   - **Vertex colours** (the brick colour on most LEGO parts) are copied from the nearest original vertex if the OBJ has none.
+   - Vertex alpha and lightmap / second UV sets always come from the nearest original vertex, since an OBJ can't hold them.
+   - The part's culling box is recalculated, so a bigger shape isn't cut off at the screen edge.
+5. Right-click the scene in the hierarchy and choose **Save GScene**. This overwrites the file you opened, so work on a copy.
+
+A game mesh can hold at most 65,536 vertices (after splitting along UV seams and hard edges). Parts with blend shapes (facial expressions) can be replaced, but the expressions won't fit the new shape.
 
 ## Supported Games
 

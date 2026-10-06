@@ -94,6 +94,23 @@ namespace Diorama.Editor
             return !special.IsBreakup || RenderOptions.ShowBreakup || !HasNonBreakupParts;
         }
 
+        /// <summary>
+        /// Every geometry object in the scene, including those in hidden LODs.
+        /// </summary>
+        public IEnumerable<EditorGeometryObject> AllGeometry()
+        {
+            foreach (var obj in Objects.OfType<EditorSceneObject>())
+            {
+                IEnumerable<EditorClipObject?> clips = [obj.ClipObject];
+                if (obj.Lods != null)
+                    clips = clips.Concat(obj.Lods.Where(l => l != null).SelectMany(l => (l.Spare ?? []).Prepend(l.ClipObject)));
+
+                foreach (var clip in clips.Where(c => c != null).Distinct())
+                    foreach (var geo in clip!.Elements)
+                        yield return geo;
+            }
+        }
+
         private bool? hasNonBreakupParts;
         private bool HasNonBreakupParts => hasNonBreakupParts ??=
             SpecialObjects.OfType<EditorSpecialObject>().Any(s => s.LODGroup != -1 && !s.IsBreakup);

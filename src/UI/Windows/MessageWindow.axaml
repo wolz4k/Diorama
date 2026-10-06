@@ -5,5 +5,5 @@
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="Diorama.MessageWindow"
         Title="MessageWindow">
-  <TextBlock x:Name="MessageText" Margin="10" />
+  <TextBlock x:Name="MessageText" Margin="12" MaxWidth="620" TextWrapping="Wrap" LineSpacing="4" />
 </Window>
