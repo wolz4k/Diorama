@@ -51,6 +51,22 @@ namespace Diorama.Editor
 
         public static ObjMeshData ParseOBJ(IEnumerable<string> lines)
         {
+            return ParseCore(lines, false)[0].Data;
+        }
+
+        /// <summary>
+        /// Reads an .OBJ holding several objects (Blender writes an "o" line per object), one mesh per object.
+        /// Objects without faces are left out.
+        /// </summary>
+        public static List<(string Name, ObjMeshData Data)> ParseOBJObjects(IEnumerable<string> lines)
+        {
+            return ParseCore(lines, true);
+        }
+
+        static List<(string Name, ObjMeshData Data)> ParseCore(IEnumerable<string> lines, bool splitObjects)
+        {
+            List<(string Name, ObjMeshData Data)> objects = new();
+            string name = "";
             ObjMeshData data = new();
 
             List<Vector3> positions = new();
@@ -75,6 +91,13 @@ namespace Diorama.Editor
                 {
                     switch (split[0])
                     {
+                        case "o" when splitObjects:
+                            if (data.Indices.Count > 0)
+                                objects.Add((name, data));
+                            name = line.Length > 2 ? line[2..].Trim() : "";
+                            data = new();
+                            vertexMap.Clear();
+                            break;
                         case "v":
                             positions.Add(new Vector3(ParseFloat(split[1]), ParseFloat(split[2]), ParseFloat(split[3])));
                             if (split.Length >= 7)
@@ -139,10 +162,13 @@ namespace Diorama.Editor
                 }
             }
 
-            if (data.Indices.Count == 0)
+            if (data.Indices.Count > 0)
+                objects.Add((name, data));
+
+            if (objects.Count == 0)
                 throw new InvalidDataException("The OBJ has no faces. Export it with faces (and triangulate them if you can).");
 
-            return data;
+            return objects;
         }
 
         /// <summary>
@@ -315,6 +341,7 @@ namespace Diorama.Editor
             ObjMeshData obj = ParseOBJ(File.ReadLines(path));
 
             notes = ReplaceMeshData(originalMesh.OriginalMesh, obj, Path.GetFileName(path));
+            notes.Add(SaveReminder);
 
             return BuildRenderMesh(originalMesh.OriginalMesh, scene);
         }
@@ -357,10 +384,10 @@ namespace Diorama.Editor
                 nuMesh.CentreExtents[1] = new Vector4((max - min) / 2, 0);
             }
 
-            notes.Add("The change is only in memory until you right-click the scene in the hierarchy and choose Save GScene, which overwrites the file you opened.");
-
             return notes;
         }
+
+        public const string SaveReminder = "The change is only in memory until you right-click the scene in the hierarchy and choose Save GScene, which overwrites the file you opened.";
 
         static RenderMesh BuildRenderMesh(NuRenderMesh nuMesh, EditorScene scene)
         {
@@ -416,27 +443,338 @@ namespace Diorama.Editor
 
         public static void WriteOBJ(TextWriter writer, Vertex[] vertices, ushort[] indices, string objectName, string? mtlFile, string? materialName)
         {
+            WriteParts(writer, [new ObjPart { Name = objectName, Vertices = vertices, Indices = indices, Material = materialName }], mtlFile);
+        }
+
+        public static void WriteParts(TextWriter writer, IEnumerable<ObjPart> parts, string? mtlFile)
+        {
             writer.WriteLine("# Exported by Diorama. Positions are Y up; vertex colours follow each position as r g b.");
             if (mtlFile != null)
                 writer.WriteLine($"mtllib {mtlFile}");
-            writer.WriteLine($"o {objectName}");
 
-            foreach (var v in vertices) // colours are stored BGRA
-                writer.WriteLine($"v {F(v.Position.X)} {F(v.Position.Y)} {F(v.Position.Z)} {F(v.ColorSet0.Z)} {F(v.ColorSet0.Y)} {F(v.ColorSet0.X)}");
-            foreach (var v in vertices)
-                writer.WriteLine($"vt {F(v.UVSet01.X)} {F(FlipV(v.UVSet01.Y))}");
-            foreach (var v in vertices)
-                writer.WriteLine($"vn {F(v.Normal.X)} {F(v.Normal.Y)} {F(v.Normal.Z)}");
-
-            if (materialName != null)
-                writer.WriteLine($"usemtl {materialName}");
-
-            for (int i = 0; i + 2 < indices.Length; i += 3)
+            int first = 1; // .OBJ indices count from 1 across the whole file
+            foreach (var part in parts)
             {
-                int i0 = indices[i] + 1, i1 = indices[i + 1] + 1, i2 = indices[i + 2] + 1;
-                writer.WriteLine($"f {i0}/{i0}/{i0} {i1}/{i1}/{i1} {i2}/{i2}/{i2}");
+                writer.WriteLine($"o {part.Name}");
+
+                foreach (var v in part.Vertices) // colours are stored BGRA
+                    writer.WriteLine($"v {F(v.Position.X)} {F(v.Position.Y)} {F(v.Position.Z)} {F(v.ColorSet0.Z)} {F(v.ColorSet0.Y)} {F(v.ColorSet0.X)}");
+                foreach (var v in part.Vertices)
+                    writer.WriteLine($"vt {F(v.UVSet01.X)} {F(FlipV(v.UVSet01.Y))}");
+                foreach (var v in part.Vertices)
+                    writer.WriteLine($"vn {F(v.Normal.X)} {F(v.Normal.Y)} {F(v.Normal.Z)}");
+
+                if (part.Material != null)
+                    writer.WriteLine($"usemtl {part.Material}");
+
+                for (int i = 0; i + 2 < part.Indices.Length; i += 3)
+                {
+                    int i0 = part.Indices[i] + first, i1 = part.Indices[i + 1] + first, i2 = part.Indices[i + 2] + first;
+                    writer.WriteLine($"f {i0}/{i0}/{i0} {i1}/{i1}/{i1} {i2}/{i2}/{i2}");
+                }
+
+                first += part.Vertices.Length;
             }
         }
+
+        /// <summary>
+        /// The name a part gets in a multi-part .OBJ. The "__m" number is the game mesh it came from, which is how
+        /// the part finds its way back on import, so it has to survive renaming in Blender (".001" suffixes are fine).
+        /// </summary>
+        public static string PartName(string? objectName, int meshIndex)
+        {
+            string clean = System.Text.RegularExpressions.Regex.Replace(objectName ?? "", @"[^A-Za-z0-9-]+", "_").Trim('_');
+            return $"{(clean == "" ? "part" : clean)}__m{meshIndex}";
+        }
+
+        public static int? MeshIndexFromName(string name)
+        {
+            var matches = System.Text.RegularExpressions.Regex.Matches(name, @"__m(\d+)");
+            return matches.Count > 0 ? int.Parse(matches[^1].Groups[1].Value, CultureInfo.InvariantCulture) : null;
+        }
+
+        static Vertex Transformed(Vertex v, Matrix4x4 m)
+        {
+            return new Vertex
+            {
+                Position = Vector3.Transform(v.Position, m),
+                Normal = v.Normal.LengthSquared() > 0 ? Vector3.Normalize(Vector3.TransformNormal(v.Normal, m)) : v.Normal,
+                Tangent = v.Tangent,
+                ColorSet0 = v.ColorSet0,
+                ColorSet1 = v.ColorSet1,
+                UVSet01 = v.UVSet01,
+                UVSet23 = v.UVSet23,
+                BlendIndices = v.BlendIndices,
+                BlendWeights = v.BlendWeights,
+            };
+        }
+
+        /// <summary>
+        /// True when an imported part has the same triangles, positions, UVs and (if it has them) colours as the mesh,
+        /// so a part that went to Blender and back untouched isn't rebuilt (which would lose its exact vertex order).
+        /// </summary>
+        public static bool IsUnchanged(ObjMeshData obj, NuRenderMesh mesh)
+        {
+            if (obj.Triangles != mesh.IndicesCount / 3)
+                return false;
+
+            Vertex[] original = ReadVertices(mesh);
+
+            // the .OBJ holds 6 decimals, so match within a tolerance; vertices sharing a position (UV seams) are told apart by UV and colour
+            const float cell = 1e-3f;
+            static (int, int, int) CellOf(Vector3 p) => ((int)MathF.Floor(p.X / cell), (int)MathF.Floor(p.Y / cell), (int)MathF.Floor(p.Z / cell));
+            Dictionary<(int, int, int), List<int>> grid = new();
+            for (int i = 0; i < original.Length; i++)
+            {
+                var key = CellOf(original[i].Position);
+                if (!grid.TryGetValue(key, out var list))
+                    grid[key] = list = new();
+                list.Add(i);
+            }
+
+            // game vertices hold colour as BGRA, imported ones as RGBA
+            static Vector3 GameRgb(Vertex v) => new(v.ColorSet0.Z, v.ColorSet0.Y, v.ColorSet0.X);
+
+            bool Same(Vertex o, Vector3 position, Vector2 uv, Vector3 rgb) =>
+                Vector3.Distance(o.Position, position) < 1e-4f &&
+                Vector2.Distance(o.UVSet01.ToVector2(), uv) < 1e-4f &&
+                (!obj.HasColours || Vector3.Distance(GameRgb(o), rgb) < 1f / 255);
+
+            // the first original vertex that looks the same; vertices differing only in normal share one
+            int FindFirst(Vector3 position, Vector2 uv, Vector3 rgb)
+            {
+                var (cx, cy, cz) = CellOf(position);
+                int best = -1;
+                for (int x = cx - 1; x <= cx + 1; x++)
+                for (int y = cy - 1; y <= cy + 1; y++)
+                for (int z = cz - 1; z <= cz + 1; z++)
+                {
+                    if (grid.TryGetValue((x, y, z), out var list))
+                        foreach (int o in list)
+                            if ((best < 0 || o < best) && Same(original[o], position, uv, rgb))
+                                best = o;
+                }
+                return best;
+            }
+
+            int[] match = new int[obj.Vertices.Count];
+            for (int i = 0; i < obj.Vertices.Count; i++)
+            {
+                var v = obj.Vertices[i];
+                match[i] = FindFirst(v.Position, v.UVSet01.ToVector2(), new Vector3(v.ColorSet0.X, v.ColorSet0.Y, v.ColorSet0.Z));
+                if (match[i] < 0)
+                    return false;
+            }
+
+            // same triangles, in any order, keeping their winding
+            static (int, int, int) Triangle(int a, int b, int c) =>
+                a <= b && a <= c ? (a, b, c) : b <= a && b <= c ? (b, c, a) : (c, a, b);
+
+            ushort[] indices = ReadIndices(mesh);
+            int[] rep = original.Select(o => FindFirst(o.Position, o.UVSet01.ToVector2(), GameRgb(o))).ToArray();
+            HashSet<(int, int, int)> triangles = new();
+            for (int i = 0; i + 2 < indices.Length; i += 3)
+                triangles.Add(Triangle(rep[indices[i]], rep[indices[i + 1]], rep[indices[i + 2]]));
+
+            for (int i = 0; i + 2 < obj.Indices.Count; i += 3)
+                if (!triangles.Contains(Triangle(match[obj.Indices[i]], match[obj.Indices[i + 1]], match[obj.Indices[i + 2]])))
+                    return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Replaces every mesh named in a multi-part .OBJ (see <see cref="PartName"/>). <paramref name="transforms"/>
+        /// holds the transform each part was exported with, which is undone here. Returns notes for the modder.
+        /// </summary>
+        public static List<string> ReplaceParts(NuRenderMesh[] meshes, List<(string Name, ObjMeshData Data)> objects, IReadOnlyDictionary<int, Matrix4x4> transforms, out List<int> replaced)
+        {
+            List<string> notes = new();
+            replaced = new();
+            List<string> unnamed = new();
+            HashSet<int> seen = new();
+            int unchanged = 0;
+
+            foreach (var (name, data) in objects)
+            {
+                int? index = MeshIndexFromName(name);
+                if (index == null || index >= meshes.Length)
+                {
+                    unnamed.Add(name == "" ? "(unnamed)" : name);
+                    continue;
+                }
+
+                if (!seen.Add(index.Value))
+                {
+                    notes.Add($"{name}: another object is also named for mesh {index}, so this one was ignored. Join them in Blender (Ctrl+J) if both belong to the part.");
+                    continue;
+                }
+
+                if (transforms.TryGetValue(index.Value, out var transform) && !transform.IsIdentity && Matrix4x4.Invert(transform, out var toLocal))
+                {
+                    for (int i = 0; i < data.Vertices.Count; i++)
+                        data.Vertices[i] = Transformed(data.Vertices[i], toLocal);
+                }
+
+                if (IsUnchanged(data, meshes[index.Value]))
+                {
+                    unchanged++;
+                    continue;
+                }
+
+                try
+                {
+                    var partNotes = ReplaceMeshData(meshes[index.Value], data, name);
+                    replaced.Add(index.Value);
+                    notes.Add($"{name}: now {data.Vertices.Count:N0} vertices and {data.Triangles:N0} triangles.");
+                    notes.AddRange(partNotes.Where(n => n.StartsWith("Warning") || n.StartsWith("The OBJ has no")).Select(n => $"{name}: {n}"));
+                }
+                catch (InvalidDataException ex)
+                {
+                    notes.Add($"{name}: not replaced. {ex.Message}");
+                }
+            }
+
+            notes.Insert(0, replaced.Count == 0
+                ? "No parts changed, so nothing was replaced."
+                : $"Replaced {replaced.Count} part{(replaced.Count == 1 ? "" : "s")}. Bone weights, vertex alpha and anything else an OBJ can't hold came from the nearest original vertex.");
+
+            if (unchanged > 0)
+                notes.Add($"{unchanged} part{(unchanged == 1 ? " was" : "s were")} the same as in the game file and left as they are.");
+
+            if (unnamed.Count > 0)
+                notes.Add($"Skipped {unnamed.Count} object{(unnamed.Count == 1 ? "" : "s")} whose name doesn't end in \"__m\" and a mesh number, so it isn't clear which part they replace: {string.Join(", ", unnamed.Take(8))}{(unnamed.Count > 8 ? ", ..." : "")}. To add new geometry, join it (Ctrl+J) into the part it belongs to.");
+
+            if (replaced.Count > 0)
+                notes.Add(SaveReminder);
+
+            return notes;
+        }
+
+        /// <summary>
+        /// The transform each mesh is drawn with, taken from the first object that draws it.
+        /// </summary>
+        static Dictionary<int, Matrix4x4> PartTransforms(EditorScene scene, NuRenderMesh[] meshes)
+        {
+            Dictionary<int, Matrix4x4> transforms = new();
+            foreach (var geo in scene.AllGeometry())
+            {
+                int index = Array.IndexOf(meshes, geo.Mesh?.OriginalMesh);
+                if (index < 0 || transforms.ContainsKey(index))
+                    continue;
+
+                var m = geo.Transform;
+                transforms[index] = new Matrix4x4(
+                    m.M11, m.M12, m.M13, m.M14,
+                    m.M21, m.M22, m.M23, m.M24,
+                    m.M31, m.M32, m.M33, m.M34,
+                    m.M41, m.M42, m.M43, m.M44);
+            }
+            return transforms;
+        }
+
+        /// <summary>
+        /// Writes every part shown right now (the picked character LOD, breakup parts if they're on) to one .OBJ, with
+        /// an .MTL and the diffuse textures as .DDS beside it. Returns how many parts were written.
+        /// </summary>
+        public static int ExportParts(EditorScene scene, string path)
+        {
+            var meshes = scene.OriginalScene.MeshSceneBlock.Meshes;
+            var transforms = PartTransforms(scene, meshes);
+            string baseName = Path.GetFileNameWithoutExtension(path);
+            string directory = Path.GetDirectoryName(path) ?? "";
+
+            List<ObjPart> parts = new();
+            Dictionary<object, string> materialNames = new();
+            Dictionary<object, string> textureFiles = new();
+            List<string> mtl = new();
+            HashSet<int> written = new();
+
+            foreach (var sceneObject in scene.Objects.OfType<EditorSceneObject>().Where(scene.IsShown))
+            {
+                var clip = sceneObject.ClipObject ?? sceneObject.Lods?.FirstOrDefault()?.ClipObject;
+                if (clip == null)
+                    continue;
+
+                foreach (var geo in clip.Elements)
+                {
+                    int index = Array.IndexOf(meshes, geo.Mesh?.OriginalMesh);
+                    if (index < 0 || !written.Add(index))
+                        continue;
+
+                    string? materialName = null;
+                    if (geo.Material != null && !materialNames.TryGetValue(geo.Material, out materialName))
+                    {
+                        materialName = PartName(geo.Material.Name, materialNames.Count).Replace("__m", "__mat");
+                        materialNames[geo.Material] = materialName;
+                        mtl.Add($"newmtl {materialName}");
+                        mtl.Add("Kd 1 1 1");
+
+                        var diffuse = geo.Material.Diffuse0?.Original;
+                        if (diffuse?.ImageHeader != null && diffuse.Data != null)
+                        {
+                            if (!textureFiles.TryGetValue(diffuse, out string? textureFile))
+                            {
+                                textureFile = $"{baseName}_tex{textureFiles.Count}.dds";
+                                textureFiles[diffuse] = textureFile;
+                                using var fs = File.Create(Path.Join(directory, textureFile));
+                                fs.Write(diffuse.ImageHeader);
+                                fs.Write(diffuse.Data);
+                            }
+                            mtl.Add($"map_Kd {textureFile}");
+                        }
+                        mtl.Add("");
+                    }
+
+                    var vertices = ReadVertices(geo.Mesh!.OriginalMesh);
+                    if (transforms.TryGetValue(index, out var transform) && !transform.IsIdentity)
+                        vertices = vertices.Select(v => Transformed(v, transform)).ToArray();
+
+                    parts.Add(new ObjPart
+                    {
+                        Name = PartName(sceneObject.DisplayName, index),
+                        Vertices = vertices,
+                        Indices = ReadIndices(geo.Mesh.OriginalMesh),
+                        Material = materialName,
+                    });
+                }
+            }
+
+            File.WriteAllLines(Path.ChangeExtension(path, "mtl"), mtl);
+            using (var writer = new StreamWriter(path))
+                WriteParts(writer, parts, baseName + ".mtl");
+
+            return parts.Count;
+        }
+
+        /// <summary>
+        /// Brings back a multi-part .OBJ written by <see cref="ExportParts"/> (and edited in Blender). Runs on the GL thread.
+        /// </summary>
+        public static List<string> ImportParts(EditorScene scene, string path)
+        {
+            var meshes = scene.OriginalScene.MeshSceneBlock.Meshes;
+            var objects = ParseOBJObjects(File.ReadLines(path));
+
+            var notes = ReplaceParts(meshes, objects, PartTransforms(scene, meshes), out var replaced);
+
+            var geometry = scene.AllGeometry().ToList();
+            foreach (int index in replaced)
+            {
+                var mesh = BuildRenderMesh(meshes[index], scene);
+                foreach (var geo in geometry.Where(g => g.Mesh?.OriginalMesh == meshes[index]))
+                    geo.Mesh = mesh;
+            }
+
+            return notes;
+        }
+    }
+
+    public class ObjPart
+    {
+        public string Name = "";
+        public Vertex[] Vertices = [];
+        public ushort[] Indices = [];
+        public string? Material;
     }
 
     /// <summary>

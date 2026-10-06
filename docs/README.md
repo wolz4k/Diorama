@@ -25,6 +25,12 @@ The tool is still under development, but it already has some features implemente
    - The part's culling box is recalculated, so a bigger shape isn't cut off at the screen edge.
 5. Right-click the scene in the hierarchy and choose **Save GScene**. This overwrites the file you opened, so work on a copy.
 
+### A whole model at once
+
+Right-click the scene in the hierarchy and choose **Export Parts as OBJ...** to write every part shown right now (the picked LOD, plus breakup parts if they're on) to one `.OBJ`, one Blender object per part, with their textures. Each object's name ends in `__m` and a number, the game mesh it came from, so keep that ending when you rename things (Blender's `.001` suffixes are fine).
+
+After editing, **Replace Parts from OBJ...** puts each object back on its part. Parts you didn't change are recognised and left exactly as they were, objects without an `__m` number are skipped (join new geometry into the part it belongs to with Ctrl+J), and a report lists what happened.
+
 A game mesh can hold at most 65,536 vertices (after splitting along UV seams and hard edges). Parts with blend shapes (facial expressions) can be replaced, but the expressions won't fit the new shape.
 
 ## Supported Games

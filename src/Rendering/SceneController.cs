@@ -63,6 +63,8 @@ namespace Diorama.Rendering
         public ICommand SaveSceneCommand { get; }
         public ICommand RemoveSceneCommand { get; }
         public ICommand ExportSceneCommand { get; }
+        public ICommand ExportPartsObjCommand { get; }
+        public ICommand ReplacePartsObjCommand { get; }
         public ICommand EditResourceHeaderCommand { get; }
         public ICommand EditTexturesCommand { get; }
         public ICommand SaveTexturesCommand { get; }
@@ -134,6 +136,48 @@ namespace Diorama.Rendering
                 }
 
                 glTFConverter.WriteObjectsToGltf(geometries, outputPath);
+            });
+
+            ExportPartsObjCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
+            {
+                if (sender == null) return;
+
+                string? outputPath = await MainWindow?.OpenSaveMenu("Export Parts as OBJ", "obj");
+                if (outputPath == null) return;
+
+                try
+                {
+                    int count = OBJConverter.ExportParts(sender, outputPath);
+                    ShowMessageDialog("Parts exported", [
+                        $"Wrote {count} parts to {Path.GetFileName(outputPath)}, with an .MTL and the textures beside it.",
+                        "Each part is a separate object in Blender. Keep the \"__m\" number at the end of each name: it is how Replace Parts from OBJ finds the part again.",
+                        "When exporting from Blender, keep Y up / -Z forward and tick UV Coordinates, Normals and Colors."]);
+                }
+                catch (Exception ex)
+                {
+                    ShowMessageDialog("Could not export the parts", [ex.Message]);
+                }
+            });
+
+            ReplacePartsObjCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
+            {
+                if (sender == null) return;
+
+                string? inputPath = await MainWindow?.OpenFileMenu("Replace Parts from OBJ", "obj");
+                if (inputPath == null) return;
+
+                RenderService.Current.Enqueue(() =>
+                {
+                    try
+                    {
+                        var notes = OBJConverter.ImportParts(sender, inputPath);
+                        ShowMessageDialog("Parts replaced", notes.Select(n => "• " + n));
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowMessageDialog("Could not import the parts", [ex.Message]);
+                    }
+                });
             });
 
             EditResourceHeaderCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>

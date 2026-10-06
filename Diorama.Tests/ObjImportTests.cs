@@ -193,6 +193,82 @@ namespace Diorama.Tests
         }
 
         [TestMethod]
+        public void PartNamesSurviveBlenderRenames()
+        {
+            Assert.AreEqual("DARKSEID_LOD1__m12", OBJConverter.PartName("DARKSEID LOD1", 12));
+            Assert.AreEqual(12, OBJConverter.MeshIndexFromName("DARKSEID_LOD1__m12.001"));
+            Assert.AreEqual(3, OBJConverter.MeshIndexFromName("odd__m7_name__m3"));
+            Assert.IsNull(OBJConverter.MeshIndexFromName("Cube"));
+        }
+
+        private static List<(string Name, ObjMeshData Data)> ExportAllParts(GScene scene, Func<int, Matrix4x4>? transform = null)
+        {
+            var meshes = scene.MeshSceneBlock.Meshes;
+            var parts = meshes.Select((mesh, i) => new ObjPart
+            {
+                Name = OBJConverter.PartName("part", i),
+                Vertices = OBJConverter.ReadVertices(mesh).Select(v =>
+                {
+                    if (transform != null)
+                        v.Position = Vector3.Transform(v.Position, transform(i));
+                    return v;
+                }).ToArray(),
+                Indices = OBJConverter.ReadIndices(mesh),
+            });
+
+            var writer = new StringWriter();
+            OBJConverter.WriteParts(writer, parts, null);
+            return OBJConverter.ParseOBJObjects(writer.ToString().Split('\n'));
+        }
+
+        /// <summary>
+        /// Exporting a whole character and bringing it straight back must change nothing at all, so an edit to one
+        /// part doesn't disturb the others (face blend shapes depend on the exact vertex order).
+        /// </summary>
+        [TestMethod]
+        public void UntouchedPartsAreLeftAlone()
+        {
+            string path = @"CHARS\BIGFIG\DARKSEID\DARKSEID_DX11.GHG";
+            var scene = Load(path);
+            var transforms = Enumerable.Range(0, scene.MeshSceneBlock.Meshes.Length)
+                .ToDictionary(i => i, i => Matrix4x4.CreateRotationY(i * 0.3f) * Matrix4x4.CreateTranslation(i, 0, 0));
+
+            var objects = ExportAllParts(scene, i => transforms[i]);
+            var notes = OBJConverter.ReplaceParts(scene.MeshSceneBlock.Meshes, objects, transforms, out var replaced);
+
+            Assert.AreEqual(0, replaced.Count, string.Join("\n", notes));
+            StringAssert.Contains(notes[0], "nothing was replaced");
+
+            AppSettings.ShouldWriteROTV = false;
+            var buffer = new MemoryStream();
+            using (var output = new RawFile(buffer))
+                scene.Write(output, new GSerializationContext());
+            CollectionAssert.AreEqual(File.ReadAllBytes(Path.Join(GamePath, path)), buffer.ToArray());
+        }
+
+        [TestMethod]
+        public void OnlyTheEditedPartIsReplaced()
+        {
+            var scene = Load(@"CHARS\BIGFIG\DARKSEID\DARKSEID_DX11.GHG");
+            var meshes = scene.MeshSceneBlock.Meshes;
+            var objects = ExportAllParts(scene);
+
+            int edited = objects.Count / 2;
+            foreach (var v in objects[edited].Data.Vertices)
+                v.Position *= 1.1f;
+            objects.Add(("Cube", objects[0].Data)); // an object Blender added, with no part number
+
+            var notes = OBJConverter.ReplaceParts(meshes, objects, new Dictionary<int, Matrix4x4>(), out var replaced);
+
+            CollectionAssert.AreEqual(new[] { edited }, replaced);
+            Assert.IsTrue(notes.Any(n => n.Contains("Skipped 1 object") && n.Contains("Cube")), string.Join("\n", notes));
+            Assert.IsTrue(notes.Any(n => n.Contains($"{meshes.Length - 1} parts were the same")), string.Join("\n", notes));
+
+            var saved = Reparse(scene).MeshSceneBlock.Meshes[edited];
+            Assert.AreEqual(objects[edited].Data.Vertices.Count, (int)saved.VerticesCount);
+        }
+
+        [TestMethod]
         public void NearestVertexFinderMatchesBruteForce()
         {
             var random = new Random(1);
