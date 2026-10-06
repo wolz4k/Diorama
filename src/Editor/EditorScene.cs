@@ -75,6 +75,29 @@ namespace Diorama.Editor
         }
 
 
+        public int CharacterLodCount { get; set; }
+
+        /// <summary>
+        /// Characters hold every LOD, plus a breakup copy, on top of each other; only the picked LOD and
+        /// (if asked for) its breakup parts are shown. A file made only of breakup parts is always shown.
+        /// </summary>
+        public bool IsShown(EditorSceneObject obj)
+        {
+            var special = obj.SpecialObject;
+            if (special == null || special.LODGroup == -1)
+                return true;
+
+            int lod = Math.Clamp(RenderOptions.CharacterLod, 0, Math.Max(CharacterLodCount - 1, 0));
+            if (special.LODGroup != lod)
+                return false;
+
+            return !special.IsBreakup || RenderOptions.ShowBreakup || !HasNonBreakupParts;
+        }
+
+        private bool? hasNonBreakupParts;
+        private bool HasNonBreakupParts => hasNonBreakupParts ??=
+            SpecialObjects.OfType<EditorSpecialObject>().Any(s => s.LODGroup != -1 && !s.IsBreakup);
+
         public EditorScene()
         {
             Textures = new();
@@ -104,7 +127,8 @@ namespace Diorama.Editor
 
             foreach (EditorSceneObject obj in Objects)
             {
-                obj.AddRenderables(ctx);
+                if (IsShown(obj))
+                    obj.AddRenderables(ctx);
             }
 
             if (RenderOptions.ShowPoIs)
@@ -125,7 +149,8 @@ namespace Diorama.Editor
 
             foreach (EditorSceneObject obj in Objects)
             {
-                obj.Draw(shader, ctx);
+                if (IsShown(obj))
+                    obj.Draw(shader, ctx);
             }
 
             GL.BindVertexArray(0);

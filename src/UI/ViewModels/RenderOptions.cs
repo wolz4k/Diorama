@@ -1,4 +1,4 @@
-﻿using Diorama.Editor;
+using Diorama.Editor;
 using Diorama.Editor.Attributes;
 using System;
 using System.Collections.Generic;
@@ -45,5 +45,10 @@ namespace Diorama.UI.ViewModels
         public static bool ShowEnvMap { get; set; } = true;
 
         public static bool ShowPoIs { get; set; } = false;
+
+        // Characters carry up to four LODs: 0 is the cutscene model, 1-3 are in-game from most to least detailed
+        public static int CharacterLod { get; set; } = 0;
+
+        public static bool ShowBreakup { get; set; } = false;
     }
 }

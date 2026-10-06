@@ -539,10 +539,15 @@ namespace Diorama.Editor
                         {
                             EditorSpecialObject obj = (EditorSpecialObject)editorScene.SpecialObjects[metadata.SpecialIndex];
                             obj.LODGroup = i;
+
+                            string layerName = metadata.Layer < lodGroup.Layers.Count ? lodGroup.Layers[metadata.Layer].Name ?? "" : "";
+                            obj.IsBreakup = IsBreakupLayer(layerName);
                         }
                     }
                 }
             }
+
+            editorScene.CharacterLodCount = scene.CharacterData.Count;
 
             if (scene.Metadata != null) // A bit of a sanity check
             {
@@ -599,6 +604,13 @@ namespace Diorama.Editor
             EditorScene editorScene = FromGScene(scene, textures, cubemap_textures, out problems);
 
             return editorScene;   
+        }
+
+        // Breakup layers are named TT6_BreakUp, TT6_Breakups, TT1_BlowUps, TT6_RoofBreakoff...
+        private static bool IsBreakupLayer(string layerName)
+        {
+            return layerName.Contains("break", StringComparison.OrdinalIgnoreCase)
+                || layerName.Contains("blowup", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool ConvertToBool(byte val)
