@@ -103,14 +103,21 @@ namespace Diorama.Rendering
 
             if (obj == null) return;
 
-            Vector3 target = EditorUtils.FlipCoordSpace(obj.Parent.Parent.BoundsCenterAndDistSqrd.Xyz);
+            Vector3 target;
+            float size;
+            if (GeometryBounds(obj, out Vector3 min, out Vector3 max))
+            {
+                // character parts carry no instance bounds, so use the part's own shape
+                target = (min + max) / 2;
+                size = MathF.Max((max - min).Length * 1.5f, 0.1f);
+            }
+            else
+            {
+                target = EditorUtils.FlipCoordSpace(obj.Parent.Parent.BoundsCenterAndDistSqrd.Xyz);
 
-            float approxSize = obj.Parent.Parent.ApproxSize;
-
-            float maxScale = MathF.Max(obj.Scale.X,
-                  MathF.Max(obj.Scale.Y, obj.Scale.Z));
-
-            float size = approxSize * maxScale;
+                float maxScale = MathF.Max(obj.Scale.X, MathF.Max(obj.Scale.Y, obj.Scale.Z));
+                size = obj.Parent.Parent.ApproxSize * maxScale;
+            }
 
             size = MathF.Min(size, 500); // stops the camera from disappearing into the oblivion
 
@@ -135,24 +142,40 @@ namespace Diorama.Rendering
 
             foreach (EditorSceneObject obj in scene.Objects.OfType<EditorSceneObject>())
             {
+                if (!scene.IsShown(obj))
+                    continue;
+
                 Vector3 center = obj.BoundsCenterAndDistSqrd.Xyz;
                 Vector3 extents = obj.BoundsExtentsAndRadius.Xyz;
-                if (!float.IsFinite(center.X + center.Y + center.Z + extents.X + extents.Y + extents.Z)) continue;
 
-                for (int corner = 0; corner < 8; corner++)
+                if (extents != Vector3.Zero && float.IsFinite(center.X + center.Y + center.Z + extents.X + extents.Y + extents.Z))
                 {
-                    Vector3 sign = new Vector3((corner & 1) == 0 ? -1 : 1, (corner & 2) == 0 ? -1 : 1, (corner & 4) == 0 ? -1 : 1);
-                    Vector3 p = EditorUtils.FlipCoordSpace(center + extents * sign);
-                    min = Vector3.ComponentMin(min, p);
-                    max = Vector3.ComponentMax(max, p);
+                    for (int corner = 0; corner < 8; corner++)
+                    {
+                        Vector3 p = EditorUtils.FlipCoordSpace(center + extents * Corner(corner));
+                        min = Vector3.ComponentMin(min, p);
+                        max = Vector3.ComponentMax(max, p);
+                    }
+                    any = true;
+                    continue;
                 }
-                any = true;
+
+                // characters leave their instance bounds zeroed: measure the parts instead
+                var clip = obj.ClipObject ?? obj.Lods?.FirstOrDefault()?.ClipObject;
+                foreach (var geo in clip?.Elements ?? [])
+                {
+                    if (!GeometryBounds(geo, out Vector3 geoMin, out Vector3 geoMax))
+                        continue;
+                    min = Vector3.ComponentMin(min, geoMin);
+                    max = Vector3.ComponentMax(max, geoMax);
+                    any = true;
+                }
             }
 
             if (!any) return;
 
             Vector3 target = (min + max) / 2;
-            float radius = MathF.Max((max - min).Length / 2, 0.5f);
+            float radius = MathF.Max((max - min).Length / 2, 0.02f);
 
             // Far enough for a sphere of that radius to fit the 45 degree view, within the 1000 unit far plane
             float distance = MathF.Min(radius / MathF.Sin(MathHelper.DegreesToRadians(22.5f)) * 1.1f, 500);
@@ -160,6 +183,48 @@ namespace Diorama.Rendering
             Camera.Position = target + new Vector3(0, 0.5f, 1).Normalized() * distance;
             (Camera.Yaw, Camera.Pitch) = CalculateLookAt(Camera.Position, target);
             isFocusing = false;
+        }
+
+        static Vector3 Corner(int corner) => new Vector3((corner & 1) == 0 ? -1 : 1, (corner & 2) == 0 ? -1 : 1, (corner & 4) == 0 ? -1 : 1);
+
+        /// <summary>
+        /// The box around a part as drawn, in view space: from its mesh's culling box if it has one, otherwise from its vertices.
+        /// </summary>
+        public static bool GeometryBounds(EditorGeometryObject geo, out Vector3 min, out Vector3 max)
+        {
+            min = new Vector3(float.MaxValue);
+            max = new Vector3(float.MinValue);
+
+            var nuMesh = geo.Mesh?.OriginalMesh;
+            if (nuMesh == null)
+                return false;
+
+            List<System.Numerics.Vector3> points = new();
+            var centre = nuMesh.CentreExtents[0];
+            var extents = nuMesh.CentreExtents[1];
+            if (extents.X != 0 || extents.Y != 0 || extents.Z != 0)
+            {
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    Vector3 c = Corner(corner);
+                    points.Add(new System.Numerics.Vector3(centre.X + extents.X * c.X, centre.Y + extents.Y * c.Y, centre.Z + extents.Z * c.Z));
+                }
+            }
+            else
+            {
+                points.AddRange(OBJConverter.ReadVertices(nuMesh).Select(v => v.Position));
+            }
+
+            foreach (var point in points)
+            {
+                if (!float.IsFinite(point.X + point.Y + point.Z))
+                    continue;
+                Vector3 p = EditorUtils.FlipCoordSpace((new Vector4(point.X, point.Y, point.Z, 1) * geo.Transform).Xyz);
+                min = Vector3.ComponentMin(min, p);
+                max = Vector3.ComponentMax(max, p);
+            }
+
+            return min.X <= max.X;
         }
 
         (float yaw, float pitch) CalculateLookAt(Vector3 from, Vector3 to)
