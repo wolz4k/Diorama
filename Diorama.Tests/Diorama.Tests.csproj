@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -17,16 +17,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="BrickVault">
-      <HintPath>G:\BV\BrickVault\bin\x64\Lib\net10.0\BrickVault.dll</HintPath>
-    </Reference>
-    <Reference Include="Common">
-      <HintPath>..\..\Common\bin\Release\net10.0\Common.dll</HintPath>
-    </Reference>
+    <ProjectReference Include="..\..\BrickVault\BrickVault.csproj" />
+    <ProjectReference Include="..\..\Common\Common.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+    <!-- Public BrickVault still has its own RawFile; Diorama means Common's. -->
+    <Using Include="Common.RawFile" Alias="RawFile" />
   </ItemGroup>
 
 </Project>

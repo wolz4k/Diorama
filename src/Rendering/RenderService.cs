@@ -84,7 +84,8 @@ namespace Diorama.Rendering
 
             Win32.wglMakeCurrent(hdc, context);
             GL.LoadBindings(new WglBindingsContext());
-            Win32.wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
+            // Stays current: queued work (e.g. a scene opened from the command line) can run
+            // before the first Render, and GL calls without a current context silently do nothing.
         }
 
         private void StartRenderThread()

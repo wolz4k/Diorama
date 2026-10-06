@@ -29,7 +29,7 @@ namespace Diorama.Tests
                     var dat = DATFile.Open(archive);
                     if (dat == null) return state;
 
-                    using var datFile = new RawFile(archive);
+                    using var datFile = new BrickVault.RawFile(archive); // the public BrickVault reads DATs with its own RawFile
 
                     foreach (var entry in dat.Files)
                     {

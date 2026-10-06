@@ -124,6 +124,44 @@ namespace Diorama.Rendering
             isFocusing = true;
         }
 
+        /// <summary>
+        /// Places the camera so the whole scene is in view, looking slightly down at it.
+        /// Bounds are in DX coordinate space, like FocusOn.
+        /// </summary>
+        public void FrameScene(EditorScene scene)
+        {
+            Vector3 min = new Vector3(float.MaxValue), max = new Vector3(float.MinValue);
+            bool any = false;
+
+            foreach (EditorSceneObject obj in scene.Objects.OfType<EditorSceneObject>())
+            {
+                Vector3 center = obj.BoundsCenterAndDistSqrd.Xyz;
+                Vector3 extents = obj.BoundsExtentsAndRadius.Xyz;
+                if (!float.IsFinite(center.X + center.Y + center.Z + extents.X + extents.Y + extents.Z)) continue;
+
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    Vector3 sign = new Vector3((corner & 1) == 0 ? -1 : 1, (corner & 2) == 0 ? -1 : 1, (corner & 4) == 0 ? -1 : 1);
+                    Vector3 p = EditorUtils.FlipCoordSpace(center + extents * sign);
+                    min = Vector3.ComponentMin(min, p);
+                    max = Vector3.ComponentMax(max, p);
+                }
+                any = true;
+            }
+
+            if (!any) return;
+
+            Vector3 target = (min + max) / 2;
+            float radius = MathF.Max((max - min).Length / 2, 0.5f);
+
+            // Far enough for a sphere of that radius to fit the 45 degree view, within the 1000 unit far plane
+            float distance = MathF.Min(radius / MathF.Sin(MathHelper.DegreesToRadians(22.5f)) * 1.1f, 500);
+
+            Camera.Position = target + new Vector3(0, 0.5f, 1).Normalized() * distance;
+            (Camera.Yaw, Camera.Pitch) = CalculateLookAt(Camera.Position, target);
+            isFocusing = false;
+        }
+
         (float yaw, float pitch) CalculateLookAt(Vector3 from, Vector3 to)
         {
             Vector3 direction = (to - from).Normalized();

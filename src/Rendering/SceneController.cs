@@ -267,14 +267,18 @@ namespace Diorama.Rendering
             string ext = Path.GetExtension(path).ToLower();
             if (ext == ".gsc" || ext == ".ghg")
             {
-                Scenes.Add(GSceneConverter.FromGScene(path, out List<string> problems));
+                EditorScene scene = GSceneConverter.FromGScene(path, out List<string> problems);
+                Scenes.Add(scene);
+                CameraController.FrameScene(scene);
                 ShowSceneLoadProblems(problems);
             }
         }
 
         public void AddScene(GScene gscene, NxgTextures nxg_textures, NxgTextures? cubemap_textures)
         {
-            Scenes.Add(GSceneConverter.FromGScene(gscene, nxg_textures, cubemap_textures, out List<string> problems));
+            EditorScene scene = GSceneConverter.FromGScene(gscene, nxg_textures, cubemap_textures, out List<string> problems);
+            Scenes.Add(scene);
+            CameraController.FrameScene(scene);
             ShowSceneLoadProblems(problems);
         }
 
