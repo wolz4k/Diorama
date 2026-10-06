@@ -22,5 +22,8 @@ namespace Diorama.Editor
         public string DisplayName { get => Name; }
 
         public int LODGroup = -1;
+
+        // Part of the brick-by-brick copy a character falls apart into when smashed
+        public bool IsBreakup;
     }
 }
