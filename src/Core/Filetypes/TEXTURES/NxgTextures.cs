@@ -49,6 +49,8 @@ namespace Diorama.Core.Filetypes.TEXTURES
                 return null;
             }
 
+            FileProvider.AddLooseRootsFor(filePath);
+
             try
             {
                 using (RawFile nxgFile = new RawFile(filePath))
@@ -79,6 +81,9 @@ namespace Diorama.Core.Filetypes.TEXTURES
             NxgTextures textures = new NxgTextures();
 
             textures.Path = file.FileLocation.ToString();
+
+            if (file.FileLocation is FilesystemFileLocation)
+                FileProvider.AddLooseRootsFor(file.FileLocation.FullPath);
 
             textures.Handle(schema, 0);
 

@@ -7,6 +7,7 @@ The tool is still under development, but it already has some features implemente
 ## Features
 
 - View level / general geometry with full texture support.
+- Scenes that use the shared LEGO texture page (`LEGOTPAGE\*.TEX`) find it in an extracted install by themselves, without setting the game folder in Settings.
 - View the hierarchy of a scene, and change the name of special objects where possible.
 - View and edit (but not save, yet!) the transformations of objects in the scene.
 - Swap the geometry in the scene with other geometry from a .OBJ file (see "Editing a part in Blender" below).
