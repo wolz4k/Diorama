@@ -11,7 +11,8 @@
     <controls:PropertyEditor Property="UsingExtracted" />
     <controls:PropertyEditor Property="ProviderPath" />
     
-    <Button Click="GenerateFingerprints_Click" HorizontalAlignment="Center">Generate Material Fingerprints</Button>
+    <Button Click="GenerateFingerprints_Click" HorizontalAlignment="Center"
+            ToolTip.Tip="Scan the game's scenes for the shaders each material uses, so Substitute Shader Set (in a material) can offer a matching set when you turn on a feature its shader lacks. Takes a while, and needs the Location above.">Generate Material Fingerprints</Button>
     <Button Click="SaveSettings_Click" HorizontalAlignment="Center">Save Settings</Button>
   </StackPanel>
 </Window>

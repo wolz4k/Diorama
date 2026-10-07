@@ -30,13 +30,13 @@ namespace Diorama
 
         private bool isArchive = true;
 
-        [DisplayLabel("Archive Files")]
+        [DisplayLabel("Archive Files", "The game is packed in .DAT archives, as installed. Diorama reads scenes and textures straight from them.")]
         public bool UsingArchives { get => isArchive; set { Set(ref isArchive, value); OnPropertyChanged(nameof(UsingExtracted)); } }
 
-        [DisplayLabel("Extracted Files")]
+        [DisplayLabel("Extracted Files", "The game's files are unpacked into folders (CHARS, LEVELS...), as mods use them.")]
         public bool UsingExtracted { get => !isArchive; set { Set(ref isArchive, !value); OnPropertyChanged(nameof(UsingArchives)); } }
 
-        [DisplayLabel("Location")]
+        [DisplayLabel("Location", "The game's folder: the one with its .DAT files, or with the extracted CHARS and LEVELS folders. Used by File > Open From Source Location and to find shared textures.")]
         [FSFolder]
         public string ProviderPath { get; set; }
 
