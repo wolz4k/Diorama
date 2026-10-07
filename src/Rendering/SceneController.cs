@@ -102,6 +102,16 @@ namespace Diorama.Rendering
                 }
                 else if (TexturesChanged(scene))
                     notes.Add("Changed textures are saved separately: Save Textures in the scene's right-click menu.");
+
+                if (saveAs != null)
+                {
+                    // the scene's own list of files still has the old names; whether the game goes by it isn't known yet
+                    string oldStem = Path.GetFileNameWithoutExtension(oldPath);
+                    if (oldStem.EndsWith("_DX11", StringComparison.OrdinalIgnoreCase)) oldStem = oldStem[..^5]; // darkseid.shaders too
+                    var named = scene.Metadata.Resources.Select(r => r.FilePath).Where(f => f != null && Path.GetFileName(f).StartsWith(oldStem, StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (named.Count > 0 && !Path.GetFileNameWithoutExtension(saveAs).StartsWith(oldStem + "_DX11", StringComparison.OrdinalIgnoreCase) && !Path.GetFileNameWithoutExtension(saveAs).Equals(oldStem, StringComparison.OrdinalIgnoreCase))
+                        notes.Add($"Its resource header still names the original files ({string.Join(", ", named.Select(Path.GetFileName))}). If the game should load the new ones, change those names in Edit Resource Header and save again.");
+                }
                 ShowMessageDialog("Scene saved", notes.Select(n => "• " + n));
             }
             catch (Exception ex)
