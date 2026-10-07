@@ -23,6 +23,8 @@
       <ControlTemplate>
         <StackPanel Spacing="5" Margin="5">
           <controls:PropertyEditor Property="Name" />
+          <TextBlock Text="{Binding Purpose}" TextWrapping="Wrap" Opacity="0.7" Margin="2,0,2,4"
+                     IsVisible="{Binding Purpose, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           <controls:PropertyEditor Property="ParentJoint" />
           <controls:ListInput Grid.Row="0" InputLabel="Parent Joint" Items="{Binding ParentScene.AllJoints}" SelectedItem="{Binding Parent}" CanBeNull="False" />
           <controls:PropertyEditor Property="Transform" />

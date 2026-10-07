@@ -25,7 +25,40 @@ namespace Diorama.Editor
         }
 
         [DisplayLabel("Name")]
-        public string Name { get => Original.Name; set { Set(ref Original.Name, value); OnPropertyChanged(nameof(DisplayName)); } }
+        public string Name { get => Original.Name; set { Set(ref Original.Name, value); OnPropertyChanged(nameof(DisplayName)); OnPropertyChanged(nameof(Purpose)); } }
+
+        /// <summary>What a point with this name is for, read from the name (the locators every character has); empty if unknown.</summary>
+        public string Purpose => Describe(Name);
+
+        private static string Describe(string? name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            string key = name[(name.LastIndexOf(':') + 1)..]; // Super_Bigfig_Skeleton:Hat_Locator
+            foreach (string suffix in new[] { "_Locator", "_Loc" })
+                if (key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) key = key[..^suffix.Length];
+            string? what = key.ToLowerInvariant() switch
+            {
+                "hat" => "where hats and helmets sit",
+                "hair" => "where hair pieces sit",
+                "glasses" => "where glasses sit",
+                "righthand" or "lefthand" => "where items held in that hand go",
+                "rightwrist" or "leftwrist" or "rightforearm" or "leftforearm" => "an attachment spot on that arm",
+                "rightsheath" or "leftsheath" => "where a sheathed weapon is carried on that side",
+                "backpack" => "where things worn on the back go",
+                "breath" => "where breath effects come out",
+                "head" => "the head's position",
+                "face" => "the face's position",
+                "lookat" => "the spot looked at when something looks at this character",
+                "impact1" or "impact2" => "where hit effects appear",
+                "hip" => "the hips' position",
+                "rightfoot" or "leftfoot" or "rightleg" or "leftleg" => "a spot on that leg or foot",
+                "shoulderl" or "shoulderr" => "a spot on that shoulder",
+                "attachedcharacter" => "where another character is attached",
+                "attachment" => "a general attachment spot",
+                _ => null
+            };
+            return what == null ? "" : $"From its name: {what}. Move it to change where that goes on this character.";
+        }
 
         public string DisplayName { get => Name; }
 

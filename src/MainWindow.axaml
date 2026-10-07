@@ -48,7 +48,7 @@
           <ComboBoxItem Content="LOD 3" />
         </ComboBox>
         <ToggleButton Content="Breakup" IsChecked="{Binding ShowBreakup}" IsVisible="{Binding ShowCharacterOptions}" ToolTip.Tip="Show the brick pieces a character falls apart into when smashed" />
-        <ToggleButton Content="PoIs" IsChecked="{Binding ShowPoIs}" ToolTip.Tip="Show Points of Interest" />
+        <ToggleButton Content="Points" IsChecked="{Binding ShowPoIs}" ToolTip.Tip="Show the points of interest: named spots on a character where the game attaches things, such as Hat_Locator (hats and hair), RightHand_Locator (held items) and Breath_Locator (breath effects)" />
         <ToggleButton Content="Shading" IsChecked="{Binding ShapeShading}"
                       ToolTip.Tip="Shade models so their shape is visible: surfaces turned away from you get darker. Off shows the flat colours the textures and vertex colours give (the game adds its own lighting)." />
         <Button Content="👁️">

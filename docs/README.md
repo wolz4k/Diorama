@@ -10,7 +10,7 @@ The tool is still under development, but it already has some features implemente
 - Scenes that use the shared LEGO texture page (`LEGOTPAGE\*.TEX`) find it in an extracted install by themselves, without setting the game folder in Settings.
 - Hub level pieces (Arkham, Apokolips, Gotham...) show their textures, which the game keeps in a shared texture scene such as `ARKHAM_TEXTURES_DX11.GSC`; Edit Textures says which file a texture really lives in, and exports its image from there. Textures that can't be found anywhere show white instead of black.
 - View the hierarchy of a scene, and change the name of special objects where possible. Each mesh is listed by its material and size (`MAT_Eyeshadow · 464 vertices`); hover it to see which mesh of the file it is, its triangles, how many bones it bends with and how many facial expressions it has.
-- View and edit (but not save, yet!) the transformations of objects in the scene.
+- View and edit the transformations of objects in the scene, and save them.
 - Swap the geometry in the scene with other geometry from a .OBJ file (see "Editing a part in Blender" below).
 - Change the primary material colour
 - **Edit Textures** (scene right-click menu): textures are labelled by their own name (`darkseid_diff`, `darkseid_nrm`), *Export DDS…* saves one to paint over, and clicking the preview replaces it with your .DDS; the size, compression and mipmaps a replacement should match are shown.
@@ -20,6 +20,8 @@ The tool is still under development, but it already has some features implemente
 - Saving writes a scene back exactly as the game stored it, apart from your edits (all 3,926 of DC Super-Villains' scenes come back byte for byte, faces with expressions included), so a mod only differs from the original where you changed something.
 - **Shading** (toolbar, on by default) darkens surfaces turned away from you so a model's shape is visible; the game's flat colours alone hide it. The **View** menu holds the other display switches (material lighting, lightmaps, shadow impostors, frustum culling), each ticked when on.
 - Toggle on/off lightmaps
+- **Points** (toolbar) shows a character's points of interest, the named spots the game attaches things to. Picking one such as `Hat_Locator` or `RightHand_Locator` says what it's for; move it to change where that goes.
+- With nothing picked, the inspector explains how to pick parts and move the camera.
 
 ## Editing a part in Blender
 
@@ -32,7 +34,7 @@ The tool is still under development, but it already has some features implemente
    - Vertex alpha and lightmap / second UV sets always come from the nearest original vertex, since an OBJ can't hold them.
    - The part's culling box is recalculated, so a bigger shape isn't cut off at the screen edge.
 5. Not right? **Undo replace** in the inspector (or *Undo Mesh Replacement* in the scene's right-click menu) puts the previous mesh back, one replacement at a time, including whole-model imports.
-6. Right-click the scene in the hierarchy and choose **Save GScene** (overwrites the file you opened; the first save keeps the original as `.bak`) or **Save GScene As…** (a new file, for example in your mod folder; its `.NXG_TEXTURES`, `.RES` and shader files are copied beside it under the new name). This overwrites the file you opened, so work on a copy.
+6. Right-click the scene in the hierarchy and choose **Save GScene** (overwrites the file you opened; the first save keeps the original as `.bak`) or **Save GScene As…** (a new file, for example in your mod folder; its `.NXG_TEXTURES`, `.RES` and shader files are copied beside it under the new name).
 
 ### A whole model at once
 
