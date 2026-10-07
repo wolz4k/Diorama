@@ -37,7 +37,7 @@
                          IsVisible="{Binding !CanEditTransform}"
                          Text="This part has no position of its own (a character's parts are placed by its skeleton), so it can't be moved here. To move or reshape it, Export mesh, edit it in Blender, then Replace mesh." />
 
-              <StackPanel Orientation="Horizontal">
+              <WrapPanel>
                 <Button Content="Replace mesh" x:Name="ReplaceMesh"
                         ToolTip.Tip="Swap this part's shape for one from an .OBJ or .glTF file (for example, one you edited in Blender). The material stays the same. Anything an .OBJ can't hold (bone weights, vertex alpha, lightmap UVs, and colours if it has none) is copied from the nearest vertex of the old shape. A report says what was carried over."/>
                 <Button Content="Export mesh" x:Name="ExportMesh"
@@ -45,7 +45,7 @@
                 <Button Content="Undo replace" x:Name="UndoReplace"
                         ToolTip.Tip="Put back the mesh as it was before the last Replace mesh in this scene (each click undoes one more)."/>
                 <Button Content="DEBUG" x:Name="DebugMesh" />
-              </StackPanel>
+              </WrapPanel>
             </StackPanel>
 
           </TabItem>
@@ -59,7 +59,8 @@
               <controls:MaterialPanel Grid.Row="2" Textures="{Binding DataContext.Controller.SelectedTextures, RelativeSource={RelativeSource AncestorType=controls:InspectorPanel}}" DataContext="{Binding Material}" />
             </Grid>
           </TabItem>
-          <TabItem Header="Lightmap">
+          <TabItem Header="Lightmap" IsVisible="{Binding Lightmap, Converter={x:Static ObjectConverters.IsNotNull}}"
+                   ToolTip.Tip="The baked light and shadow this level part uses">
             <controls:LightmapPanel Textures="{Binding DataContext.Controller.SelectedTextures, RelativeSource={RelativeSource AncestorType=controls:InspectorPanel}}" DataContext="{Binding Lightmap}" />
           </TabItem>
         </TabControl>
