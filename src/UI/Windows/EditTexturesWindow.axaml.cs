@@ -26,6 +26,7 @@ public partial class EditTexturesWindow : ModalWindow
         AddNewTexture.Click += AddNewTexture_Click;
         RemoveTexture.Click += RemoveTexture_Click;
         ExportTexture.Click += ExportTexture_Click;
+        ExportAllTextures.Click += ExportAllTextures_Click;
         viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(EditTexturesViewModel.Texture))
@@ -40,7 +41,9 @@ public partial class EditTexturesWindow : ModalWindow
         var nu = texture?.Pixels;
         if (nu == null || nu.Data == null || nu.Width == 0)
         {
-            TextureFacts.Text = texture == null ? "" : "No image data in this slot.";
+            TextureFacts.Text = texture == null
+                ? "Pick a texture on the left to see its size and format. Export DDS saves it to paint over; clicking the preview replaces it with your .DDS."
+                : "No image data in this slot.";
             return;
         }
 
@@ -103,6 +106,52 @@ public partial class EditTexturesWindow : ModalWindow
         using var output = File.Create(path);
         output.Write(nu.ImageHeader);
         output.Write(nu.Data);
+    }
+
+    private async void ExportAllTextures_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is not EditTexturesViewModel vm)
+            return;
+
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Export all textures to…" });
+        string? folder = folders.FirstOrDefault()?.TryGetLocalPath();
+        if (folder == null)
+            return;
+
+        try
+        {
+            int written = ExportAll(vm.Textures, folder);
+            TextureFacts.Text = $"Exported {written} texture{(written == 1 ? "" : "s")} to {folder}. To put one back, pick it here and click the preview.";
+        }
+        catch (Exception ex)
+        {
+            TextureFacts.Text = $"Export stopped: {ex.Message}";
+        }
+    }
+
+    /// <summary>Writes each texture worth painting over to <paramref name="folder"/> as name.dds; returns how many.</summary>
+    public static int ExportAll(IEnumerable<RenderTexture> textures, string folder)
+    {
+        int written = 0;
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var texture in textures)
+        {
+            // lightmaps (named "Lightmap") and slots with no image aren't worth painting over
+            if (texture.Pixels is not { ImageHeader: not null, Data: not null, Width: > 0 } nu || texture.ShortName is "" or "Lightmap")
+                continue;
+
+            string name = string.Concat(texture.ShortName.Split(Path.GetInvalidFileNameChars()));
+            string file = name;
+            for (int n = 2; !used.Add(file); n++) // two textures with one name get _2, _3...
+                file = $"{name}_{n}";
+
+            // a whole DDS file: its header, then the pixels of every mipmap
+            using var output = File.Create(Path.Combine(folder, file + ".dds"));
+            output.Write(nu.ImageHeader);
+            output.Write(nu.Data);
+            written++;
+        }
+        return written;
     }
 
     private async void OnTextureButtonClick()

@@ -23,7 +23,7 @@ Diorama opens the 3D scenes of Traveller's Tales' LEGO games (`.GSC` levels and 
 - View and edit the transformations of objects in the scene, and save them.
 - Swap the geometry in the scene with other geometry from a .OBJ file (see "Editing a part in Blender" below).
 - Change the primary material colour
-- **Edit Textures** (scene right-click menu): textures are labelled by their own name (`darkseid_diff`, `darkseid_nrm`), *Export DDS…* saves one to paint over, and clicking the preview replaces it with your .DDS; the size, compression and mipmaps a replacement should match are shown.
+- **Edit Textures** (scene right-click menu): textures are labelled by their own name (`darkseid_diff`, `darkseid_nrm`), *Export DDS…* saves one to paint over (*Export all…* saves every one into a folder), and clicking the preview replaces it with your .DDS; the size, compression and mipmaps a replacement should match are shown.
 - Hover a material setting (blend mode, alpha test, specular, glow, reflection, tints…) to read what it does.
 - Characters keep up to four copies of their model (LOD 0 the most detailed, LOD 3 about a quarter of the vertices); the **LOD** menu picks which one you see, and a selected part says which LOD it's in, since replacing a mesh changes only that copy.
 - Breakup parts (the pieces a bigfig falls apart into, shown with *Breakup*) sit on the body instead of a hip height below it.
