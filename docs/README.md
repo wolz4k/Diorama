@@ -12,6 +12,7 @@ The tool is still under development, but it already has some features implemente
 - View and edit (but not save, yet!) the transformations of objects in the scene.
 - Swap the geometry in the scene with other geometry from a .OBJ file (see "Editing a part in Blender" below).
 - Change the primary material colour
+- **Edit Textures** (scene right-click menu): textures are labelled by their own name (`darkseid_diff`, `darkseid_nrm`), *Export DDS…* saves one to paint over, and clicking the preview replaces it with your .DDS; the size, compression and mipmaps a replacement should match are shown.
 - Hover a material setting (blend mode, alpha test, specular, glow, reflection, tints…) to read what it does.
 - Breakup parts (the pieces a bigfig falls apart into, shown with *Breakup*) sit on the body instead of a hip height below it.
 - Faces and other models whose parts share one vertex buffer draw correctly (each part starts partway into the buffer).

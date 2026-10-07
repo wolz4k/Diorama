@@ -16,6 +16,17 @@ namespace Diorama.Rendering
 
         public string Name { get => Original?.Header?.Name ?? ""; }
 
+        /// <summary>The name's last part without its folders or ".nut" (most names start with the same project_diana/… path).</summary>
+        public string ShortName
+        {
+            get
+            {
+                string name = Name.Replace('\\', '/');
+                name = name[(name.LastIndexOf('/') + 1)..];
+                return name.EndsWith(".nut", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;
+            }
+        }
+
         public string GscName;
 
         public bool Deleted { get; private set; } = false;
