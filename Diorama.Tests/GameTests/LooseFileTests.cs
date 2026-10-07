@@ -25,8 +25,8 @@ namespace Diorama.Tests.GameTests
         [TestCategory("LooseFiles")]
         public void RoundTripLooseScenes()
         {
-            // DC Super-Villains leaves the vector markers zeroed; Diorama writes "ROTV" there by default
-            AppSettings.ShouldWriteROTV = false;
+            // DC Super-Villains leaves the vector markers zeroed; a save keeps whatever the file had, whatever the app setting
+            AppSettings.ShouldWriteROTV = true;
 
             var failures = new ConcurrentDictionary<string, ConcurrentBag<string>>();
             int total = 0, parsed = 0, identical = 0;

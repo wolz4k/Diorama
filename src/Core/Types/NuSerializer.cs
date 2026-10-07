@@ -15,6 +15,7 @@ namespace Diorama.Core.Types
         {
             string marker = file.ReadString(4);
             Debug.Assert(marker == "ROTV" || marker == "\0\0\0");
+            VectorMarkers.Saw(marker);
 
             int count = file.ReadInt(true);
             var list = new List<T>();
@@ -41,7 +42,7 @@ namespace Diorama.Core.Types
 
         public static void WriteVectorArray<T>(RawFile file, List<T> items, uint parentVersion = 0)
         {
-            if (AppSettings.ShouldWriteROTV)
+            if (VectorMarkers.ShouldWrite)
             {
                 file.WriteString("ROTV");
             }

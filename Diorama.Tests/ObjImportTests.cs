@@ -239,7 +239,6 @@ namespace Diorama.Tests
             Assert.AreEqual(0, replaced.Count, string.Join("\n", notes));
             StringAssert.Contains(notes[0], "nothing was replaced");
 
-            AppSettings.ShouldWriteROTV = false;
             var buffer = new MemoryStream();
             using (var output = new RawFile(buffer))
                 scene.Write(output, new GSerializationContext());
