@@ -161,6 +161,14 @@ namespace Diorama
 
         private async void OpenArchiveFile()
         {
+            if (!FileProvider.IsConfigured)
+            {
+                sceneController.ShowMessageDialog("No game folder set", [
+                    "This lists every scene in the game folder chosen in Settings: the folder with the game's .DAT files, or an extracted install.",
+                    "Set it in Settings first, or use File > Open (or drag a .GSC / .GHG onto the window) to open one file."]);
+                return;
+            }
+
             List<FileLocation> filePaths = new();
 
             foreach (var fileLocation in FileProvider.EnumerateLocations("gsc", "ghg"))

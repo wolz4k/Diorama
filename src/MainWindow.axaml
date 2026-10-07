@@ -23,8 +23,10 @@
       
       <Menu Grid.Column="0" BorderBrush="#ff404040" BorderThickness="0,0,0,1">
         <MenuItem Header="_File">
-          <MenuItem Header="Open" Click="OpenFile_Click"/>
-          <MenuItem Header="Open From Source Location" Click="OpenArchiveFile_Click"/>
+          <MenuItem Header="Open" Click="OpenFile_Click"
+                    ToolTip.Tip="Open a .GSC (level, prop) or .GHG (character) file. Its .NXG_TEXTURES beside it is loaded too. You can also drag a file onto the window." />
+          <MenuItem Header="Open From Source Location" Click="OpenArchiveFile_Click"
+                    ToolTip.Tip="Pick from every scene in the game folder set in Settings, including ones inside the game's .DAT archives" />
         </MenuItem>
         <MenuItem Header="_View">
           <MenuItem Header="Material Lighting" ToggleType="CheckBox" IsChecked="False" Click="CameraLightItem_Click"

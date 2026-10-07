@@ -11,6 +11,9 @@ namespace Diorama.Core.IO
         private static IFileProvider provider;
         public static FileProviderState State { get; private set; }
 
+        /// <summary>Whether a game folder (archives or an extracted install) is set in Settings.</summary>
+        public static bool IsConfigured => provider != null;
+
         public static void InitializeArchives(string location)
         {
             provider = new ArchivesFileProvider(location);

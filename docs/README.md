@@ -1,8 +1,17 @@
 ﻿# Diorama
 
-Diorama is a tool for managing the geometry used in the LEGO videogames developed by Traveller's Tales. It allows you to view and edit the geometry of the game.
+Diorama opens the 3D scenes of Traveller's Tales' LEGO games (`.GSC` levels and props, `.GHG` characters) so you can look at them, see what each part is for, and change them: swap a part's mesh for one made in Blender, replace textures, move parts and attachment points, then save a file the game can load.
 
-The tool is still under development, but it already has some features implemented.
+**Which games:** it's built and checked against **LEGO DC Super-Villains** on PC. All 3,926 of its scenes and 3,911 texture files open, and save back byte for byte when nothing was changed. Other LEGO games may open too, but haven't been checked here.
+
+**Is an edit safe in game?** Saving only changes the bytes you edited, and the first save keeps the original as `.bak`. Mesh replacements, texture swaps and moved points haven't all been tried in the game yet, so test each change in game, and keep the `.bak` until you have.
+
+### Getting started
+
+1. Extract the game if it's packed in `.DAT` archives, or point *Settings* at the game folder and use *File > Open From Source Location*.
+2. *File > Open* (or drag onto the window) a scene, for example `CHARS\BIGFIG\DARKSEID\DARKSEID_DX11.GHG`. Its textures load from the `.NXG_TEXTURES` beside it.
+3. Click a part, or pick it in the list, to see and edit it in the inspector. Hold the right mouse button to look around, with W A S D to move.
+4. Work on a copy in your mod folder: right-click the scene and *Save GScene As…* first.
 
 ## Features
 
