@@ -341,7 +341,10 @@ namespace Diorama.Editor
                     EditorClipObject clip = new EditorClipObject();
                     foreach (var el in displayClip.Elements)
                     {
-                        NuTransformMtx local = display.TransformMtxs[el.TransformIndex];
+                        // Some cutscene props (CUT_GLINT) have no meshes or transforms at all, so there's nothing to draw.
+                        // A missing transform reads as zero, which already means "identity, not editable".
+                        if (el.MeshIndex < 0 || el.MeshIndex >= meshes.Length) continue;
+                        NuTransformMtx local = el.TransformIndex >= 0 && el.TransformIndex < (display.TransformMtxs?.Count ?? 0) ? display.TransformMtxs![el.TransformIndex] : new NuTransformMtx();
                         Matrix4 mtx = local.AsMatrix();
                         RenderMesh mesh = meshes[el.MeshIndex];
                         EditorGeometryObject obj = new EditorGeometryObject();
@@ -711,6 +714,7 @@ namespace Diorama.Editor
                 metadata.Resources.Add(editorRef);
             }
 
+            metadata.LoadedSignature = metadata.Signature();
             return metadata;
         }
 
@@ -839,6 +843,11 @@ namespace Diorama.Editor
         public static void ConvertResourceHeader(EditorScene scene)
         {
             var nuScene = scene.OriginalScene;
+            // Rebuilding the file tree can list the paths in a different order from the game's (ARKHAMGROUND), so only
+            // rebuild it when the references were changed
+            if (scene.Metadata.LoadedSignature != null && scene.Metadata.Signature() == scene.Metadata.LoadedSignature)
+                return;
+
             var rawResources = scene.Metadata.Resources;
 
             List<EditorResourceReference> resources = scene.Metadata.Resources.OrderBy(x => x.Type).ToList();
@@ -904,13 +913,13 @@ namespace Diorama.Editor
             if (!scene.MetaStringsMatchedTextures && scene.Textures.Count == scene.LoadedTextureCount)
                 return;
 
-            List<NuDynamicString> textureStrings = new List<NuDynamicString>();
+            // Refill the list it was read into (rather than a new one) so it keeps its ROTV/zero marker (see VectorMarkers)
+            var textureStrings = originalScene.Metadata.MetaStrings ??= new List<NuDynamicString>();
+            textureStrings.Clear();
             foreach (var tex in scene.Textures)
             {
                 textureStrings.Add(new NuDynamicString(tex.GscName));
             }
-
-            originalScene.Metadata.MetaStrings = textureStrings;
         }
 
         public static void HandleShaders(EditorScene scene)

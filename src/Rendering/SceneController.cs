@@ -104,6 +104,34 @@ namespace Diorama.Rendering
             }
         }
 
+        /// <summary>
+        /// A check for the editor's save path (which needs OpenGL, so the tests can't run it): opens each scene listed in
+        /// <paramref name="listPath"/> (one path per line), saves it through the editor to listPath.out.bin, and writes
+        /// SAME / DIFF / FAIL per scene to listPath.results, then exits. Run as Diorama.exe --save-sweep list.txt.
+        /// </summary>
+        public void RunSaveSweep(string listPath)
+        {
+            var results = new List<string>();
+            string outFile = listPath + ".out.bin";
+            foreach (var file in File.ReadAllLines(listPath).Where(l => l.Trim().Length > 0))
+            {
+                try
+                {
+                    var scene = GSceneConverter.FromGScene(file, out _);
+                    scene.OriginalScene.Path = outFile;
+                    GSceneConverter.Write(scene);
+                    bool same = File.ReadAllBytes(outFile).AsSpan().SequenceEqual(File.ReadAllBytes(file));
+                    results.Add((same ? "SAME " : "DIFF ") + file);
+                }
+                catch (Exception ex)
+                {
+                    results.Add("FAIL " + file + " " + ex.ToString().Replace(Environment.NewLine, " | "));
+                }
+            }
+            File.WriteAllLines(listPath + ".results", results);
+            Environment.Exit(0);
+        }
+
         /// <summary>Copies X_DX11.NXG_TEXTURES, X_DX11.GSC.RES and the like from beside <paramref name="from"/> to beside <paramref name="to"/>, renamed, unless they're there already.</summary>
         private static IEnumerable<string> CopyCompanions(string from, string to)
         {

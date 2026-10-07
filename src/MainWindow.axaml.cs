@@ -54,7 +54,11 @@ namespace Diorama
             Title = $"Diorama - {AppSettings.BuildVersion} [{AppSettings.BuildType}] ({AppSettings.BuildDate})";
 
             string[] args = Environment.GetCommandLineArgs();
-            if (args.Length > 1)
+            if (args.Length > 2 && args[1] == "--save-sweep")
+            {
+                MainViewport.RunSaveSweep(args[2]);
+            }
+            else if (args.Length > 1)
             {
                 if (!File.Exists(args[1]))
                 {
