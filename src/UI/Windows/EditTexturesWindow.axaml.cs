@@ -27,6 +27,7 @@ public partial class EditTexturesWindow : ModalWindow
         RemoveTexture.Click += RemoveTexture_Click;
         ExportTexture.Click += ExportTexture_Click;
         ExportAllTextures.Click += ExportAllTextures_Click;
+        RestoreTexture.Click += RestoreTexture_Click;
         viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(EditTexturesViewModel.Texture))
@@ -106,6 +107,31 @@ public partial class EditTexturesWindow : ModalWindow
         using var output = File.Create(path);
         output.Write(nu.ImageHeader);
         output.Write(nu.Data);
+    }
+
+    private void RestoreTexture_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is not EditTexturesViewModel { Texture: { } tex })
+            return;
+        if (!tex.IsReplaced)
+        {
+            TextureFacts.Text += Environment.NewLine + "This texture hasn't been replaced, so there's nothing to restore.";
+            return;
+        }
+
+        int slot = TexturePicker.GetSlot(tex);
+        TexturePicker.SetSlot(slot, RenderTexture.GetWhiteTexture()); // trigger re-draw
+        RenderService.Current.Enqueue(() =>
+        {
+            tex.RestoreAsRead();
+            TexturePicker.SetSlot(slot, tex);
+            PART_MainTexture.Reload();
+            Dispatcher.UIThread.Post(() =>
+            {
+                ShowFacts(tex);
+                TextureFacts.Text += Environment.NewLine + "Restored the image the scene was opened with.";
+            });
+        });
     }
 
     private async void ExportAllTextures_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

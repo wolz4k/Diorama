@@ -51,6 +51,26 @@ namespace Diorama.Rendering
         public NuTexture Pixels => sharedPixels ?? Original;
         private NuTexture? sharedPixels;
 
+        // as the scene was read, for RestoreAsRead
+        private NuTexture? readOriginal, readShared;
+        private string? readSharedFrom;
+        private uint readLevel; // NuTexture.Load sets the shared header's mipmap count to the replacement's
+
+        /// <summary>Whether a replacement changed this texture since the scene was read.</summary>
+        public bool IsReplaced => readOriginal != null && !ReferenceEquals(Original, readOriginal);
+
+        /// <summary>Puts back the image the scene was read with, undoing replacements. Render thread only.</summary>
+        public void RestoreAsRead()
+        {
+            if (!IsReplaced) return;
+            Original = readOriginal!;
+            if (Original.Header != null) Original.Header.Level = readLevel;
+            sharedPixels = readShared;
+            SharedFrom = readSharedFrom;
+            if (Pixels.Data != null && Pixels.Width > 0)
+                Upload(Pixels);
+        }
+
         private static RenderTexture whiteTexture;
 
         /// <summary>Whether <paramref name="texture"/> is the white stand-in a material gets for a texture index it couldn't resolve (or none).</summary>
@@ -281,6 +301,10 @@ namespace Diorama.Rendering
             renderTexture.Original = texture;
             renderTexture.SharedFrom = shared?.Scene;
             renderTexture.sharedPixels = shared?.Texture;
+            renderTexture.readOriginal = texture;
+            renderTexture.readShared = shared?.Texture;
+            renderTexture.readSharedFrom = shared?.Scene;
+            renderTexture.readLevel = texture.Header?.Level ?? 0;
 
             renderTexture.GscName = texture.Header.Name;
 

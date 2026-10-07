@@ -29,6 +29,8 @@
                 ToolTip.Tip="Save this texture as a .DDS file to paint over in an image editor (GIMP, Paint.NET, Photoshop with a DDS plugin)">Export DDS…</Button>
         <Button x:Name="ExportAllTextures" Width="140" HorizontalContentAlignment="Center"
                 ToolTip.Tip="Save every texture of the scene as a .DDS into a folder you pick, named by texture (lightmaps and empty slots are left out)">Export all…</Button>
+        <Button x:Name="RestoreTexture" Width="140" HorizontalContentAlignment="Center"
+                ToolTip.Tip="Put back the image this texture had when the scene was opened, undoing your replacements">Restore original</Button>
         <Button x:Name="RemoveTexture" Width="140" HorizontalContentAlignment="Center" Background="Red" Foreground="White">Delete texture</Button>
       </WrapPanel>
       <controls:TexturePreviewControl VerticalAlignment="Center" Grid.Row="1" Texture="{Binding Texture}" Width="256" Height="256" Cursor="Hand" x:Name="PART_MainTexture"
