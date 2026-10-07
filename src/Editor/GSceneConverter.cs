@@ -550,6 +550,15 @@ namespace Diorama.Editor
             }
 
             editorScene.CharacterLodCount = scene.CharacterData.Count;
+            foreach (var obj in editorScene.Objects.OfType<EditorSceneObject>())
+            {
+                if (obj.SpecialObject is { LODGroup: >= 0 } special && obj.ClipObject != null)
+                    foreach (var geo in obj.ClipObject.Elements)
+                    {
+                        geo.LodGroup = special.LODGroup;
+                        geo.IsBreakupPart = special.IsBreakup;
+                    }
+            }
 
             if (scene.Metadata != null) // A bit of a sanity check
             {

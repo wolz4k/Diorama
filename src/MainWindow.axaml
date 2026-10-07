@@ -43,7 +43,7 @@
 
       <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" x:Name="RenderOptionsItems">
         <ComboBox SelectedIndex="{Binding CharacterLod}" VerticalAlignment="Center" IsVisible="{Binding ShowCharacterOptions}"
-                  ToolTip.Tip="Character detail level: LOD 0 is the cutscene model, LOD 1-3 are in-game, most to least detailed">
+                  ToolTip.Tip="Which copy of the character to show. A character keeps up to four copies of its model, from LOD 0 (most detail) to LOD 3 (about a quarter of the vertices). Replacing a part changes only the LOD it's in.">
           <ComboBoxItem Content="LOD 0" />
           <ComboBoxItem Content="LOD 1" />
           <ComboBoxItem Content="LOD 2" />

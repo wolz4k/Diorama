@@ -21,6 +21,22 @@ namespace Diorama.Editor
         /// <summary>What the hierarchy shows: the material, so parts can be told apart, and the size.</summary>
         public string Name => $"{(Material?.Name is { Length: > 0 } material ? material : "Geometry")} · {Mesh?.VerticesCount ?? 0:N0} vertices";
 
+        /// <summary>Which character LOD this part belongs to (-1 if it isn't a character's), and whether it's a breakup piece.</summary>
+        public int LodGroup { get; set; } = -1;
+        public bool IsBreakupPart { get; set; }
+
+        /// <summary>For a part of a character with several LODs: that replacing it changes only its own LOD.</summary>
+        public string LodNote
+        {
+            get
+            {
+                int count = Parent?.SceneOwner?.CharacterLodCount ?? 0;
+                if (LodGroup < 0 || count < 2) return "";
+                string what = IsBreakupPart ? $"a breakup piece of LOD {LodGroup}" : $"part of LOD {LodGroup}";
+                return $"This is {what} of {count}. The character keeps a separate copy of its model per LOD (LOD 0 the most detailed, LOD {count - 1} the least), so a mesh replaced here only changes LOD {LodGroup}: replace the matching part in the other LODs too (pick them in the LOD menu).";
+            }
+        }
+
         /// <summary>The hierarchy's tooltip: which mesh of the file this is and what it carries.</summary>
         public string Summary
         {

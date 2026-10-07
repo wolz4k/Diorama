@@ -24,6 +24,7 @@ Diorama opens the 3D scenes of Traveller's Tales' LEGO games (`.GSC` levels and 
 - Change the primary material colour
 - **Edit Textures** (scene right-click menu): textures are labelled by their own name (`darkseid_diff`, `darkseid_nrm`), *Export DDS…* saves one to paint over, and clicking the preview replaces it with your .DDS; the size, compression and mipmaps a replacement should match are shown.
 - Hover a material setting (blend mode, alpha test, specular, glow, reflection, tints…) to read what it does.
+- Characters keep up to four copies of their model (LOD 0 the most detailed, LOD 3 about a quarter of the vertices); the **LOD** menu picks which one you see, and a selected part says which LOD it's in, since replacing a mesh changes only that copy.
 - Breakup parts (the pieces a bigfig falls apart into, shown with *Breakup*) sit on the body instead of a hip height below it.
 - Faces and other models whose parts share one vertex buffer draw correctly (each part starts partway into the buffer).
 - Saving writes a scene back exactly as the game stored it, apart from your edits (all 3,926 of DC Super-Villains' scenes come back byte for byte, faces with expressions included), so a mod only differs from the original where you changed something.
