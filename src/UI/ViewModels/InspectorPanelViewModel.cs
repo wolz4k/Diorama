@@ -35,6 +35,7 @@ namespace Diorama.UI.ViewModels
 
             RenderService.Current.Enqueue(() =>
             {
+                var snapshot = MeshSnapshot.Take(scene, $"Replace with {Path.GetFileName(path)}");
                 try
                 {
                     RenderMesh oldMesh = selectedGeo.Mesh;
@@ -60,19 +61,29 @@ namespace Diorama.UI.ViewModels
                         }
                     }
                     selectedGeo.Mesh = newMesh;
+                    scene.MeshUndo.Push(snapshot);
 
                     if (notes != null)
                     {
                         if (sharing > 1)
                             notes.Insert(1, $"{sharing} objects in this scene use this mesh, and all of them now show the new one.");
+                        notes.Add("Not what you wanted? Undo replace (in the inspector, or the scene's right-click menu) puts the old mesh back.");
                         Controller.ShowMessageDialog("Mesh replaced", notes.Select(n => "• " + n));
                     }
                 }
                 catch (Exception ex)
                 {
+                    snapshot.Restore(); // a failed import leaves the scene as it was
                     Controller.ShowMessageDialog("Could not import from file", [ex.Message]);
                 }
             });
+        }
+
+        public void UndoReplace()
+        {
+            var scene = Controller.SelectedGeometry?.Parent?.SceneOwner ?? Controller.Scenes.FirstOrDefault();
+            if (scene != null)
+                Controller.UndoMeshReplace(scene);
         }
 
         public void ExportMesh(string path)

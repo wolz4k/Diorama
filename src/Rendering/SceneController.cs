@@ -65,6 +65,24 @@ namespace Diorama.Rendering
         public ICommand ExportSceneCommand { get; }
         public ICommand ExportPartsObjCommand { get; }
         public ICommand ReplacePartsObjCommand { get; }
+        public ICommand UndoMeshReplaceCommand { get; }
+
+        /// <summary>Takes back the scene's last mesh replacement (single part or a parts OBJ), on the render thread.</summary>
+        public void UndoMeshReplace(EditorScene scene)
+        {
+            RenderService.Current.Enqueue(() =>
+            {
+                if (scene.MeshUndo.Count == 0)
+                {
+                    ShowMessageDialog("Nothing to undo", ["No mesh in this scene has been replaced since it was opened."]);
+                    return;
+                }
+                var snapshot = scene.MeshUndo.Pop();
+                snapshot.Restore();
+                ShowMessageDialog("Mesh replacement undone", [$"Undid: {snapshot.Label}.",
+                    scene.MeshUndo.Count > 0 ? $"{scene.MeshUndo.Count} earlier replacement(s) can still be undone." : "The meshes are back as they were when the scene was opened (or last saved)."]);
+            });
+        }
         public ICommand EditResourceHeaderCommand { get; }
         public ICommand EditTexturesCommand { get; }
         public ICommand SaveTexturesCommand { get; }
@@ -168,16 +186,29 @@ namespace Diorama.Rendering
 
                 RenderService.Current.Enqueue(() =>
                 {
+                    var snapshot = MeshSnapshot.Take(sender, $"Replace parts from {Path.GetFileName(inputPath)}");
                     try
                     {
                         var notes = OBJConverter.ImportParts(sender, inputPath);
+                        if (notes.Count > 0 && notes[0].StartsWith("Replaced"))
+                        {
+                            sender.MeshUndo.Push(snapshot);
+                            notes.Add("Not what you wanted? Undo Mesh Replacement in the scene's right-click menu puts the old parts back.");
+                        }
                         ShowMessageDialog("Parts replaced", notes.Select(n => "• " + n));
                     }
                     catch (Exception ex)
                     {
+                        snapshot.Restore();
                         ShowMessageDialog("Could not import the parts", [ex.Message]);
                     }
                 });
+            });
+
+            UndoMeshReplaceCommand = new RelayCommand<EditorScene>((EditorScene? sender) =>
+            {
+                if (sender != null)
+                    UndoMeshReplace(sender);
             });
 
             EditResourceHeaderCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>

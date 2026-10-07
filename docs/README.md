@@ -27,7 +27,8 @@ The tool is still under development, but it already has some features implemente
    - **Vertex colours** (the brick colour on most LEGO parts) are copied from the nearest original vertex if the OBJ has none.
    - Vertex alpha and lightmap / second UV sets always come from the nearest original vertex, since an OBJ can't hold them.
    - The part's culling box is recalculated, so a bigger shape isn't cut off at the screen edge.
-5. Right-click the scene in the hierarchy and choose **Save GScene**. This overwrites the file you opened, so work on a copy.
+5. Not right? **Undo replace** in the inspector (or *Undo Mesh Replacement* in the scene's right-click menu) puts the previous mesh back, one replacement at a time, including whole-model imports.
+6. Right-click the scene in the hierarchy and choose **Save GScene**. This overwrites the file you opened, so work on a copy.
 
 ### A whole model at once
 

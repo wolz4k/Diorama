@@ -94,6 +94,9 @@ namespace Diorama.Editor
             return !special.IsBreakup || RenderOptions.ShowBreakup || !HasNonBreakupParts;
         }
 
+        /// <summary>The geometry before each mesh replacement, newest last, for Undo replace.</summary>
+        public Stack<MeshSnapshot> MeshUndo { get; } = new();
+
         /// <summary>
         /// Every geometry object in the scene, including those in hidden LODs.
         /// </summary>

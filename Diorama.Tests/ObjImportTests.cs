@@ -339,6 +339,31 @@ namespace Diorama.Tests
             Assert.AreEqual(beforeShapes.Count, k, "every shape is still there");
         }
 
+        /// <summary>
+        /// Undo after replacing a face part that's the first user of a shared buffer (which also moves the other parts'
+        /// offsets and rebuilds the expressions) gives back a file identical to the original.
+        /// </summary>
+        [TestMethod]
+        public void UndoReplaceRestoresTheFileExactly()
+        {
+            string path = @"CHARS\SUPER_CHARACTER\FACE\FACE_ATROCITUS_DX11.GHG";
+            var scene = Load(path);
+            var editor = new EditorScene { OriginalScene = scene };
+            var meshes = scene.MeshSceneBlock.Meshes;
+            var mesh = meshes.First(m => m.Shape != null);
+
+            var snapshot = MeshSnapshot.Take(editor, "test");
+            var obj = ExportAndParse(mesh);
+            foreach (var v in obj.Vertices) v.Position *= 1.2f;
+            OBJConverter.ReplaceMeshData(mesh, obj, "bigger.obj", meshes);
+            snapshot.Restore();
+
+            var buffer = new MemoryStream();
+            using (var output = new RawFile(buffer))
+                scene.Write(output, new GSerializationContext());
+            CollectionAssert.AreEqual(File.ReadAllBytes(Path.Join(GamePath, path)), buffer.ToArray());
+        }
+
         [TestMethod]
         public void NearestVertexFinderMatchesBruteForce()
         {

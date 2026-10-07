@@ -36,6 +36,8 @@
                               ToolTip.Tip="Write every part shown right now (the picked LOD) to one .OBJ for Blender, one object per part, with its textures."/>
                     <MenuItem Header="Replace Parts from OBJ..." Command="{Binding $parent[TreeView].DataContext.ReplacePartsObjCommand}" CommandParameter="{Binding}"
                               ToolTip.Tip="Bring back an .OBJ made with Export Parts as OBJ. Each object replaces the part its name ends with (__m number); unchanged parts are left alone."/>
+                    <MenuItem Header="Undo Mesh Replacement" Command="{Binding $parent[TreeView].DataContext.UndoMeshReplaceCommand}" CommandParameter="{Binding}"
+                              ToolTip.Tip="Put back the meshes as they were before the last Replace mesh or Replace Parts from OBJ (each use undoes one more)."/>
                     <MenuItem Header="Edit Resource Header" Command="{Binding $parent[TreeView].DataContext.EditResourceHeaderCommand}" CommandParameter="{Binding}"/>
                     <MenuItem Header="Edit Textures" Command="{Binding $parent[TreeView].DataContext.EditTexturesCommand}" CommandParameter="{Binding}"/>
                     <MenuItem Header="Save Textures" Command="{Binding $parent[TreeView].DataContext.SaveTexturesCommand}" CommandParameter="{Binding}"/>
