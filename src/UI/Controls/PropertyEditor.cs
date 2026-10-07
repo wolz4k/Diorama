@@ -124,6 +124,8 @@ namespace Diorama
                 {
                     case DisplayLabelAttribute display:
                         editor.InputLabel = display.Name;
+                        if (!string.IsNullOrEmpty(display.Tip))
+                            ToolTip.SetTip(editor, display.Tip); // what the setting does, for modders new to materials
                         break;
 
                     case EnabledIfAttribute enabled:
