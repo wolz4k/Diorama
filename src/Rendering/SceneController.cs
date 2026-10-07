@@ -235,6 +235,7 @@ namespace Diorama.Rendering
             // the LOD picker and Breakup toggle only show while a character is open
             Scenes.CollectionChanged += (_, _) => RenderOptions.AnyCharacter = Scenes.Any(s =>
                 s.CharacterLodCount > 1 || s.SpecialObjects.OfType<EditorSpecialObject>().Any(o => o.IsBreakup));
+            Scenes.CollectionChanged += (_, _) => Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(AnyMinifigPart)));
 
             SafeRestructure = new RelayCommand<IHierarchySelectable>(async (IHierarchySelectable? sender) =>
             {
@@ -412,6 +413,12 @@ namespace Diorama.Rendering
         }
 
         private readonly Queue<Action> glQueue = new();
+
+        /// <summary>
+        /// Whether a shared minifig part (CHARS\SUPER_CHARACTER: the base minifig, hair, hats, capes...) is open. Those draw
+        /// white, because the game colours them per character; nothing in the part's own file says so.
+        /// </summary>
+        public bool AnyMinifigPart => Scenes.Any(s => (s.OriginalScene?.Path ?? "").Replace('/', '\\').Contains(@"\SUPER_CHARACTER\", StringComparison.OrdinalIgnoreCase));
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged(

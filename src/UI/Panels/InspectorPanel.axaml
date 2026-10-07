@@ -31,6 +31,8 @@
           <TextBlock TextWrapping="Wrap" Text="Hold the right mouse button in the view to look around. While holding it, W A S D move, Space and Ctrl go up and down, and Shift goes faster." />
           <TextBlock TextWrapping="Wrap" Text="F moves the camera to the picked part." />
           <TextBlock TextWrapping="Wrap" Text="Right-click the scene's name in the list for saving, textures and exporting to Blender." />
+          <TextBlock TextWrapping="Wrap" IsVisible="{Binding Controller.AnyMinifigPart}"
+                     Text="Minifig parts from CHARS\SUPER_CHARACTER (the base minifig, hair, hats, capes...) show white here: the game colours them per character, from that character's own files (which Flux edits), not from the part." />
         </StackPanel>
         <ContentControl Content="{Binding Controller.SelectedHierarchyObject}">
           <ContentControl.DataTemplates>
