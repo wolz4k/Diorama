@@ -545,6 +545,8 @@ namespace Diorama.Editor
                         }
                     }
                 }
+
+                PlaceBreakupParts(editorScene, scene);
             }
 
             editorScene.CharacterLodCount = scene.CharacterData.Count;
@@ -567,6 +569,37 @@ namespace Diorama.Editor
             }
 
             return editorScene;
+        }
+
+        /// <summary>
+        /// Breakup parts are rigid, unskinned meshes stored relative to the character's hips (joint 1), so drawn as they are
+        /// they sit a hip height below the body. Each is drawn with its LOD's bind-pose hips matrix (the inverse of
+        /// Inv_Wt[1]); that's only the editor's transform, the file's own (zero) one is kept.
+        /// </summary>
+        private static void PlaceBreakupParts(EditorScene editorScene, GScene scene)
+        {
+            foreach (var sceneObject in editorScene.Objects.OfType<EditorSceneObject>())
+            {
+                var special = sceneObject.SpecialObject;
+                if (special == null || !special.IsBreakup || special.LODGroup < 0 || special.LODGroup >= scene.CharacterData.Count)
+                    continue;
+
+                var inverses = scene.CharacterData[special.LODGroup].Inv_Wt;
+                if (inverses == null || inverses.Count < 2)
+                    continue;
+
+                var m = inverses[1].mtx;
+                var inverse = new Matrix4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
+                if (inverse.Determinant == 0)
+                    continue;
+                var hips = inverse.Inverted();
+
+                var clips = new[] { sceneObject.ClipObject }.Concat(sceneObject.Lods?.Select(l => l?.ClipObject) ?? []);
+                foreach (var clip in clips.Where(c => c != null).Distinct())
+                    foreach (var geo in clip!.Elements)
+                        if (geo.Mesh?.OriginalMesh?.SkinMtxMap is not { Count: > 0 } && !geo.CanEditTransform)
+                            geo.Transform = hips;
+            }
         }
 
         public static EditorScene FromGScene(string filePath, out List<string> problems)

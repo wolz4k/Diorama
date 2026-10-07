@@ -12,6 +12,7 @@ The tool is still under development, but it already has some features implemente
 - View and edit (but not save, yet!) the transformations of objects in the scene.
 - Swap the geometry in the scene with other geometry from a .OBJ file (see "Editing a part in Blender" below).
 - Change the primary material colour
+- Breakup parts (the pieces a bigfig falls apart into, shown with *Breakup*) sit on the body instead of a hip height below it.
 - Faces and other models whose parts share one vertex buffer draw correctly (each part starts partway into the buffer).
 - Saving writes a scene back exactly as the game stored it, apart from your edits (all 3,926 of DC Super-Villains' scenes come back byte for byte, faces with expressions included), so a mod only differs from the original where you changed something.
 - Toggle on/off lightmaps
