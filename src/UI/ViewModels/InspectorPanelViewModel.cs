@@ -38,29 +38,7 @@ namespace Diorama.UI.ViewModels
                 var snapshot = MeshSnapshot.Take(scene, $"Replace with {Path.GetFileName(path)}");
                 try
                 {
-                    RenderMesh oldMesh = selectedGeo.Mesh;
-                    RenderMesh newMesh;
-                    List<string> notes = null;
-                    if (isGLTF(path))
-                    {
-                        newMesh = glTFConverter.GetObjectsFromGltf(path, oldMesh, scene);
-                    }
-                    else
-                    {
-                        newMesh = OBJConverter.MeshFromOBJ(path, oldMesh, scene, out notes);
-                    }
-
-                    // the game mesh was changed in place, so every object drawing it gets the new one
-                    int sharing = 0;
-                    foreach (var geo in scene.AllGeometry())
-                    {
-                        if (geo.Mesh == oldMesh || geo.Mesh?.OriginalMesh == newMesh.OriginalMesh)
-                        {
-                            geo.Mesh = newMesh;
-                            sharing++;
-                        }
-                    }
-                    selectedGeo.Mesh = newMesh;
+                    int sharing = ReplaceOne(scene, selectedGeo, path, out var notes);
                     scene.MeshUndo.Push(snapshot);
 
                     if (notes != null)
@@ -70,6 +48,81 @@ namespace Diorama.UI.ViewModels
                         notes.Add("Not what you wanted? Undo replace (in the inspector, or the scene's right-click menu) puts the old mesh back.");
                         Controller.ShowMessageDialog("Mesh replaced", notes.Select(n => "• " + n));
                     }
+                }
+                catch (Exception ex)
+                {
+                    snapshot.Restore(); // a failed import leaves the scene as it was
+                    Controller.ShowMessageDialog("Could not import from file", [ex.Message]);
+                }
+            });
+        }
+
+        /// <summary>Replaces <paramref name="geo"/>'s mesh from the file; returns how many objects draw that mesh. Render thread only.</summary>
+        private int ReplaceOne(EditorScene scene, EditorGeometryObject geo, string path, out List<string>? notes)
+        {
+            RenderMesh oldMesh = geo.Mesh;
+            RenderMesh newMesh;
+            notes = null;
+            if (isGLTF(path))
+                newMesh = glTFConverter.GetObjectsFromGltf(path, oldMesh, scene);
+            else
+                newMesh = OBJConverter.MeshFromOBJ(path, oldMesh, scene, out notes);
+
+            // the game mesh was changed in place, so every object drawing it gets the new one
+            int sharing = 0;
+            foreach (var other in scene.AllGeometry())
+            {
+                if (other.Mesh == oldMesh || other.Mesh?.OriginalMesh == newMesh.OriginalMesh)
+                {
+                    other.Mesh = newMesh;
+                    sharing++;
+                }
+            }
+            geo.Mesh = newMesh;
+            return sharing;
+        }
+
+        /// <summary>
+        /// Replaces the selected character part, and the same part in each of the character's other LODs (see
+        /// <see cref="LodParts"/>), from one file. Bone weights and the rest are fitted to each LOD's own old mesh.
+        /// </summary>
+        public void ReplaceMeshInAllLods(string path)
+        {
+            if (string.IsNullOrEmpty(path) || Controller.SelectedGeometry is not { LodGroup: >= 0 } selectedGeo) return;
+
+            var scene = selectedGeo.Parent.SceneOwner;
+
+            RenderService.Current.Enqueue(() =>
+            {
+                var snapshot = MeshSnapshot.Take(scene, $"Replace with {Path.GetFileName(path)} in every LOD");
+                try
+                {
+                    // matched before anything changes, since a replacement moves the part's bounding box
+                    var targets = new List<(int Lod, EditorGeometryObject Geo, string Was)> { (selectedGeo.LodGroup, selectedGeo, selectedGeo.Name) };
+                    var lines = new List<string>();
+                    for (int lod = 0; lod < scene.CharacterLodCount; lod++)
+                    {
+                        if (lod == selectedGeo.LodGroup) continue;
+                        if (LodParts.FindInLod(scene, selectedGeo, lod) is { } match)
+                            targets.Add((lod, match, match.Name));
+                        else
+                            lines.Add($"LOD {lod}: no part with the same material in the same place (lower LODs often merge parts or drop small ones), so it's unchanged. Replace it there by hand if it should change too.");
+                    }
+
+                    List<string>? firstNotes = null;
+                    foreach (var (lod, geo, was) in targets.OrderBy(t => t.Lod))
+                    {
+                        ReplaceOne(scene, geo, path, out var notes);
+                        firstNotes ??= notes;
+                        lines.Add($"LOD {lod}: replaced {was}{(geo == selectedGeo ? " (the part you picked)" : "")}.");
+                    }
+                    scene.MeshUndo.Push(snapshot);
+
+                    lines.Sort(StringComparer.Ordinal);
+                    if (firstNotes != null)
+                        lines.AddRange(firstNotes.Skip(1)); // what was carried over, as for one part (its first line names the file)
+                    lines.Add("Pick each LOD in the LOD menu to check it. Not right? Undo replace puts every LOD back at once.");
+                    Controller.ShowMessageDialog("Mesh replaced in every LOD", lines.Select(n => "• " + n));
                 }
                 catch (Exception ex)
                 {

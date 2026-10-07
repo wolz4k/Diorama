@@ -43,6 +43,7 @@ Diorama opens the 3D scenes of Traveller's Tales' LEGO games (`.GSC` levels and 
    - **Vertex colours** (the brick colour on most LEGO parts) are copied from the nearest original vertex if the OBJ has none.
    - Vertex alpha and lightmap / second UV sets always come from the nearest original vertex, since an OBJ can't hold them.
    - The part's culling box is recalculated, so a bigger shape isn't cut off at the screen edge.
+   - On a character, **Replace in all LODs** does the same for the matching part (same material, same place) in each of its other LODs, so the change shows at every distance. The report lists which part each LOD got, or that a LOD has none.
 5. Not right? **Undo replace** in the inspector (or *Undo Mesh Replacement* in the scene's right-click menu) puts the previous mesh back, one replacement at a time, including whole-model imports.
 6. Right-click the scene in the hierarchy and choose **Save GScene** (overwrites the file you opened; the first save keeps the original as `.bak`) or **Save GScene As…** (a new file, for example in your mod folder; its textures, with any you replaced, are saved beside it as a matching `.NXG_TEXTURES`, and its `.RES` and shader files are copied under the new name). **Save Textures** writes replaced textures into the scene's own `.NXG_TEXTURES`, also keeping a `.bak` the first time; unchanged textures come back byte for byte.
 

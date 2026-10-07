@@ -33,7 +33,7 @@ namespace Diorama.Editor
                 int count = Parent?.SceneOwner?.CharacterLodCount ?? 0;
                 if (LodGroup < 0 || count < 2) return "";
                 string what = IsBreakupPart ? $"a breakup piece of LOD {LodGroup}" : $"part of LOD {LodGroup}";
-                return $"This is {what} of {count}. The character keeps a separate copy of its model per LOD (LOD 0 the most detailed, LOD {count - 1} the least), so a mesh replaced here only changes LOD {LodGroup}: replace the matching part in the other LODs too (pick them in the LOD menu).";
+                return $"This is {what} of {count}. The character keeps a separate copy of its model per LOD (LOD 0 the most detailed, LOD {count - 1} the least), so Replace mesh only changes LOD {LodGroup}. Replace in all LODs changes the matching part in the others too.";
             }
         }
 

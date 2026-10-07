@@ -20,6 +20,10 @@ public class GeometryInspector : TemplatedControl
         if (replaceMeshButton != null)
             replaceMeshButton.Click += ReplaceMeshClick;
 
+        var replaceAllButton = e.NameScope.Find<Button>("ReplaceMeshAllLods");
+        if (replaceAllButton != null)
+            replaceAllButton.Click += async (_, _) => viewmodel?.ReplaceMeshInAllLods(await PickMeshFile("Replace Mesh in Every LOD"));
+
         var exportMeshButton = e.NameScope.Find<Button>("ExportMesh");
         if (exportMeshButton != null)
             exportMeshButton.Click += ExportMeshClick;
@@ -55,12 +59,17 @@ public class GeometryInspector : TemplatedControl
 
     private async void ReplaceMeshClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        viewmodel.ReplaceMesh(await PickMeshFile("Replace Mesh"));
+    }
+
+    private async Task<string?> PickMeshFile(string title)
+    {
         var window = TopLevel.GetTopLevel(this) as Window;
 
         var files = await window.StorageProvider.OpenFilePickerAsync(
             new FilePickerOpenOptions
             {
-                Title = "Replace Mesh",
+                Title = title,
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
@@ -69,9 +78,7 @@ public class GeometryInspector : TemplatedControl
                 }
             });
 
-        var path = files.FirstOrDefault()?.Path.LocalPath;
-
-        viewmodel.ReplaceMesh(path);
+        return files.FirstOrDefault()?.Path.LocalPath;
     }
 
     private async void ExportMeshClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
