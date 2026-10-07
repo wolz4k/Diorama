@@ -413,23 +413,11 @@ namespace Diorama.Editor
                         if (lod.NumInstances == 0) continue;
 
                         sceneObject.Lods[j].Spare = new();
-                        for (int k = 0; k < lod.NumInstances; k++)
+                        foreach (var lodClip in LodClips(lod, display, allClipObjects, 0))
                         {
-                            if (lod.LodHeirarchical == 0)
-                            {
-                                var lodClip = allClipObjects[lod.FirstInstance + k];
-                                sceneObject.Lods[j].ClipObject = lodClip;
-                                lodClip.Parent = sceneObject;
-                                sceneObject.Lods[j].Spare.Add(lodClip);
-                            }
-                            else
-                            {
-                                var childInstance = display.SceneInstances[lod.FirstInstance + k];
-                                var lodClip = allClipObjects[childInstance.ClipObjectIndex];
-                                sceneObject.Lods[j].ClipObject = lodClip;
-                                lodClip.Parent = sceneObject;
-                                sceneObject.Lods[j].Spare.Add(lodClip);
-                            }
+                            sceneObject.Lods[j].ClipObject = lodClip;
+                            lodClip.Parent = sceneObject;
+                            sceneObject.Lods[j].Spare.Add(lodClip);
                         }
                     }
 
@@ -571,6 +559,35 @@ namespace Diorama.Editor
             }
 
             return editorScene;
+        }
+
+        /// <summary>
+        /// The clip objects one LOD of a scene instance draws. A hierarchical LOD lists other instances, and in the hub levels
+        /// (Gotham, Metropolis, Apokolips...) such a child can itself be a LOD group with no clip of its own (index -1), so
+        /// it's resolved to its own most detailed LOD in turn. Indices past the lists are skipped.
+        /// </summary>
+        private static IEnumerable<EditorClipObject> LodClips(NuSceneInstanceLod lod, NuDisplayScene display, List<EditorClipObject> clips, int depth)
+        {
+            for (int k = 0; k < lod.NumInstances; k++)
+            {
+                int index = (int)lod.FirstInstance + k;
+                if (lod.LodHeirarchical == 0)
+                {
+                    if (index >= 0 && index < clips.Count)
+                        yield return clips[index];
+                    continue;
+                }
+
+                if (index < 0 || index >= display.SceneInstances.Count)
+                    continue;
+                var child = display.SceneInstances[index];
+                if (child.ClipObjectIndex >= 0 && child.ClipObjectIndex < clips.Count)
+                    yield return clips[child.ClipObjectIndex];
+                else if (depth < 8 && child.Lods != null)
+                    foreach (var childLod in child.Lods.Where(l => l.NumInstances > 0).Take(1))
+                        foreach (var clip in LodClips(childLod, display, clips, depth + 1))
+                            yield return clip;
+            }
         }
 
         /// <summary>
