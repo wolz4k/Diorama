@@ -468,7 +468,7 @@ namespace Diorama.Editor
                     var mtx = jointTransforms[i].mtx.ToMatrix4().Inverted();
                     var joint = new EditorJoint(joints[i], mtx, editorScene);
 
-                    if (joint.Original.ParentIndex != 255)
+                    if (joint.Original.ParentIndex != 255 && joint.Original.ParentIndex < editorScene.AllJoints.Count)
                     {
                         EditorJoint parent = (EditorJoint)editorScene.AllJoints[joint.Original.ParentIndex];
                         joint.Parent = parent;
@@ -487,7 +487,8 @@ namespace Diorama.Editor
                     var poi = poiData[i];
                     editorScene.PoIs.Add(new EditorPointOfInterest(poi, editorScene)
                     {
-                        Parent = (EditorJoint)editorScene.AllJoints[poi.ParentJointIdx]
+                        // some points of interest have no joint (255, or past the joints, as in ADDITIONALMODEL_HOODDOWN)
+                        Parent = poi.ParentJointIdx < editorScene.AllJoints.Count ? (EditorJoint)editorScene.AllJoints[poi.ParentJointIdx] : null
                     });
                 }
 
@@ -501,11 +502,12 @@ namespace Diorama.Editor
                         SceneOwner = editorScene
                     };
 
-                    if (metadata.JointIndex != 255)
+                    // indices past the lists are tolerated: a few files point at joints they don't have (ADDITIONALMODEL_HOODDOWN)
+                    if (metadata.JointIndex != 255 && metadata.JointIndex < editorScene.AllJoints.Count)
                     {
                         editorMetadata.Joint = (EditorJoint)editorScene.AllJoints[metadata.JointIndex];
                     }
-                    if (metadata.SpecialIndex != -1)
+                    if (metadata.SpecialIndex >= 0 && metadata.SpecialIndex < editorScene.SpecialObjects.Count)
                     {
                         editorMetadata.SpecialObject = (EditorSpecialObject)editorScene.SpecialObjects[metadata.SpecialIndex];
                     }
@@ -520,7 +522,7 @@ namespace Diorama.Editor
                     var editorLayer = new EditorLayer(layer);
 
                     int total = layer.NumRigids + layer.NumSkins;
-                    for (int j = 0; j < total; j++)
+                    for (int j = 0; j < total && layer.MetaDataIndex + j < metadataItems.Length; j++)
                     {
                         editorLayer.LayerItems.Add(metadataItems[layer.MetaDataIndex + j]);
                     }
@@ -535,7 +537,7 @@ namespace Diorama.Editor
                     {
                         var metadata = lodGroup.LayerMetadata[j];
 
-                        if (metadata.SpecialIndex != -1)
+                        if (metadata.SpecialIndex >= 0 && metadata.SpecialIndex < editorScene.SpecialObjects.Count)
                         {
                             EditorSpecialObject obj = (EditorSpecialObject)editorScene.SpecialObjects[metadata.SpecialIndex];
                             obj.LODGroup = i;
@@ -718,17 +720,66 @@ namespace Diorama.Editor
         }
 
         private const string defaultString = "default_string";
+        /// <summary>
+        /// Keeps the scene's name table and points each special object at its name in it. Joints, layers, points of
+        /// interest, splines and occluders also hold offsets into this table, so it's never rebuilt: an unchanged name keeps
+        /// its offset, and a renamed object reuses a matching name or has its new one added at the end.
+        /// </summary>
         public static void CreateNameTable(EditorScene scene)
         {
-            NuAlignedBuffer nameTable = new NuAlignedBuffer();
-            nameTable.SetPadding(1);
-            nameTable.AddString(defaultString);
+            var table = scene.OriginalScene.NameTable;
+            if (table.Names?.Buffer == null)
+            {
+                NuAlignedBuffer nameTable = new NuAlignedBuffer();
+                nameTable.SetPadding(1);
+                nameTable.AddString(defaultString);
+                foreach (EditorSpecialObject specialObject in scene.SpecialObjects)
+                {
+                    specialObject.Original.NameIndex = (uint)nameTable.AddString(specialObject.Name);
+                }
+                nameTable.Finalise();
+                table.Names = nameTable;
+                return;
+            }
+
+            var buffer = new List<byte>(table.Names.Buffer);
             foreach (EditorSpecialObject specialObject in scene.SpecialObjects)
             {
-                specialObject.Original.NameIndex = (uint)nameTable.AddString(specialObject.Name);
+                string name = specialObject.Name ?? "";
+                if (NameAt(buffer, (int)specialObject.Original.NameIndex) == name)
+                    continue;
+                int existing = FindName(buffer, name);
+                if (existing >= 0)
+                {
+                    specialObject.Original.NameIndex = (uint)existing;
+                    continue;
+                }
+                specialObject.Original.NameIndex = (uint)buffer.Count;
+                buffer.AddRange(System.Text.Encoding.UTF8.GetBytes(name));
+                buffer.Add(0);
             }
-            nameTable.Finalise();
-            scene.OriginalScene.NameTable.Names = nameTable;
+            table.Names.Buffer = buffer.ToArray();
+        }
+
+        private static string? NameAt(List<byte> buffer, int offset)
+        {
+            if (offset < 0 || offset >= buffer.Count) return null;
+            int end = offset;
+            while (end < buffer.Count && buffer[end] != 0) end++;
+            return System.Text.Encoding.UTF8.GetString(buffer.GetRange(offset, end - offset).ToArray());
+        }
+
+        /// <summary>The offset of <paramref name="name"/> as a whole string in the table, or -1.</summary>
+        private static int FindName(List<byte> buffer, string name)
+        {
+            for (int start = 0; start < buffer.Count;)
+            {
+                int end = start;
+                while (end < buffer.Count && buffer[end] != 0) end++;
+                if (end > start && NameAt(buffer, start) == name) return start;
+                start = end + 1;
+            }
+            return -1;
         }
 
         public static void ConvertCharacterData(EditorScene scene)

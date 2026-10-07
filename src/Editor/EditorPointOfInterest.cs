@@ -39,7 +39,7 @@ namespace Diorama.Editor
 
         public void Draw(Shader shader, RenderMesh mesh)
         {
-            shader.SetMatrix4("model", Matrix4.CreateScale(0.001f) * Transform * Parent.WorldTransform);
+            shader.SetMatrix4("model", Matrix4.CreateScale(0.001f) * Transform * (Parent?.WorldTransform ?? Matrix4.Identity));
 
             mesh.Draw();
         }
