@@ -151,13 +151,18 @@ namespace Diorama.Core.Filetypes.TEXTURES
             return 4 + HeaderSize + totalDataSize + additionalDataSize;
         }
 
+        /// <summary>Reads a .DDS file to replace a texture with. Throws InvalidDataException if it isn't one.</summary>
         public static NuTexture Load(RawFile file, NuTexGenHdr header)
         {
-            SchemaSerializer schema = new SchemaSerializer(file, false);
+            // Handle(schema, 0) used to do this, but version 0 skips the image, so a replacement came out empty (0 x 0)
+            long start = file.Position;
+            if (file.fileStream.Length - start < 128 || file.ReadString(4) != "DDS ")
+                throw new InvalidDataException("This file isn't a DDS image (it doesn't start with \"DDS \"). Save your image as .DDS, for example DXT5 (BC3) with mipmaps.");
+            file.Seek(start, SeekOrigin.Begin);
 
             NuTexture texture = new NuTexture();
             texture.Header = header;
-            texture.Handle(schema, 0);
+            texture.Size = (uint)texture.Calculate(file);
             header.Level = (uint)texture.MipCount;
             return texture;
         }

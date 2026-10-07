@@ -37,6 +37,32 @@ namespace Diorama.Tests
         }
 
         [TestMethod]
+        public void ExportedDdsLoadsBackAsTheSameImage()
+        {
+            // Edit Textures exports ImageHeader + Data as a .DDS; loading that file is what Replace does
+            var (textures, _) = Load(@"CHARS\BIGFIG\DARKSEID\DARKSEID_DX11.NXG_TEXTURES");
+            var original = textures.TextureSet.Textures[0];
+            byte[] dds = original.ImageHeader.Concat(original.Data).ToArray();
+
+            using var file = new RawFile(new MemoryStream(dds, false));
+            var loaded = NuTexture.Load(file, new Diorama.Core.Filetypes.GSC.Components.NuTexGenHdr { Name = "replacement" });
+
+            Assert.AreEqual(original.Width, loaded.Width);
+            Assert.AreEqual(original.Height, loaded.Height);
+            Assert.AreEqual(original.FourCC, loaded.FourCC);
+            Assert.AreEqual(original.MipCount, loaded.MipCount);
+            CollectionAssert.AreEqual(original.ImageHeader, loaded.ImageHeader);
+            CollectionAssert.AreEqual(original.Data, loaded.Data);
+        }
+
+        [TestMethod]
+        public void NonDdsFileIsRefused()
+        {
+            using var file = new RawFile(new MemoryStream(new byte[256], false));
+            Assert.ThrowsException<InvalidDataException>(() => NuTexture.Load(file, new Diorama.Core.Filetypes.GSC.Components.NuTexGenHdr()));
+        }
+
+        [TestMethod]
         public void ReplacedTextureIsSavedAndTheRestKept()
         {
             var (textures, original) = Load(@"CHARS\BIGFIG\DARKSEID\DARKSEID_DX11.NXG_TEXTURES");

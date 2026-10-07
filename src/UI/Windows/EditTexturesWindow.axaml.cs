@@ -44,20 +44,42 @@ public partial class EditTexturesWindow : ModalWindow
             return;
         }
 
-        string format = nu.FourCC switch
-        {
-            0x31545844 => "DXT1 (BC1, no or 1-bit alpha)",
-            0x33545844 => "DXT3 (BC2)",
-            0x35545844 => "DXT5 (BC3, with alpha)",
-            0x30315844 => nu.Dx10Format == 98 ? "BC7 (DX10)" : $"DX10 format {nu.Dx10Format}",
-            _ => "uncompressed",
-        };
-        string text = $"{nu.Width} × {nu.Height}, {format}, {nu.MipCount} mipmap level{(nu.MipCount == 1 ? "" : "s")}{(nu.IsCubemap ? ", cubemap" : "")}";
+        string text = Describe(nu);
         if (string.IsNullOrEmpty(nu.Header?.Name))
             text += ". It comes from the shared LEGO texture page (LEGOTPAGE), so replacing it here isn't saved into this scene.";
         else if (texture!.SharedFrom != null)
             text += $". This scene only names it: the image is stored in {texture.SharedFrom}, which other parts of the level use too. Replacing it here saves a copy into this scene's own texture file (not yet tested in game).";
         TextureFacts.Text = text;
+    }
+
+    private static string FormatName(NuTexture nu) => nu.FourCC switch
+    {
+        0x31545844 => "DXT1 (BC1, no or 1-bit alpha)",
+        0x33545844 => "DXT3 (BC2)",
+        0x35545844 => "DXT5 (BC3, with alpha)",
+        0x30315844 => nu.Dx10Format == 98 ? "BC7 (DX10)" : $"DX10 format {nu.Dx10Format}",
+        _ => "uncompressed",
+    };
+
+    private static string Describe(NuTexture nu) =>
+        $"{nu.Width} × {nu.Height}, {FormatName(nu)}, {nu.MipCount} mipmap level{(nu.MipCount == 1 ? "" : "s")}{(nu.IsCubemap ? ", cubemap" : "")}";
+
+    /// <summary>What a modder should know about <paramref name="replacement"/> compared with the image it replaces.</summary>
+    private static List<string> CompareReplacement(NuTexture old, NuTexture replacement)
+    {
+        var notes = new List<string>();
+        if (old.Width > 0)
+            notes.Add($"Replaced. It was {Describe(old)}.");
+        if (replacement.MipCount <= 1 && old.MipCount > 1)
+            notes.Add($"Yours has no mipmaps (the original had {old.MipCount}), so it may shimmer from a distance. Save the DDS with mipmaps if your editor offers it.");
+        if (!System.Numerics.BitOperations.IsPow2(replacement.Width) || !System.Numerics.BitOperations.IsPow2(replacement.Height))
+            notes.Add("Its size isn't a power of two (256, 512, 1024...), which the game's own textures always are.");
+        if (old.FourCC == 0x35545844 && replacement.FourCC == 0x31545844)
+            notes.Add("The original is DXT5, which has an alpha channel; yours is DXT1, so any transparency is lost.");
+        if (old.Width > 0 && (replacement.Width != old.Width || replacement.Height != old.Height))
+            notes.Add("Its size differs from the original's. That's fine if it's the same layout (UVs are 0-1), just bigger or smaller.");
+        notes.Add("Save Textures (scene right-click menu) to keep it.");
+        return notes;
     }
 
     private async void ExportTexture_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -98,13 +120,31 @@ public partial class EditTexturesWindow : ModalWindow
             }
         });
 
-        if (files.Count > 0 && DataContext is EditTexturesViewModel vm)
+        if (files.Count > 0 && DataContext is EditTexturesViewModel { Texture: not null } vm)
         {
             string filePath = files[0].Path.LocalPath;
 
-            NuTexture texture = NuTexture.Load(filePath, vm.Texture.Original.Header);
-
             var tex = vm.Texture;
+            var old = tex.Pixels;
+            uint oldLevel = tex.Original.Header.Level;
+
+            NuTexture texture;
+            try
+            {
+                texture = NuTexture.Load(filePath, tex.Original.Header);
+                // what the viewer can draw, and what the game's own textures use
+                if (texture.FourCC is not (0x31545844 or 0x33545844 or 0x35545844) && !(texture.FourCC == 0x30315844 && texture.Dx10Format == 98))
+                    throw new InvalidDataException($"This DDS is {FormatName(texture)}. Save it as DXT1 (BC1, no transparency) or DXT5 (BC3, with transparency), which is what the game's textures use.");
+                if (texture.Width == 0 || texture.Height == 0 || texture.Data == null)
+                    throw new InvalidDataException("This DDS has no image in it.");
+            }
+            catch (Exception ex)
+            {
+                tex.Original.Header.Level = oldLevel;
+                TextureFacts.Text = "Not replaced: " + ex.Message;
+                return;
+            }
+            var comparison = CompareReplacement(old, texture);
 
             int slot = TexturePicker.GetSlot(vm.Texture);
 
@@ -115,7 +155,11 @@ public partial class EditTexturesWindow : ModalWindow
                 tex.Reload(texture);
                 TexturePicker.SetSlot(slot, vm.Texture);
                 PART_MainTexture.Reload();
-                Dispatcher.UIThread.Post(() => ShowFacts(tex));
+                Dispatcher.UIThread.Post(() =>
+                {
+                    ShowFacts(tex);
+                    TextureFacts.Text += Environment.NewLine + string.Join(Environment.NewLine, comparison);
+                });
                 //vm.Texture = tex;
                 //TexturePicker.RefreshTexture(vm.Texture);
             });
