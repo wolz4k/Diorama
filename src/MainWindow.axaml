@@ -40,14 +40,14 @@
       </Menu>
 
       <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" x:Name="RenderOptionsItems">
-        <ComboBox SelectedIndex="{Binding CharacterLod}" VerticalAlignment="Center"
+        <ComboBox SelectedIndex="{Binding CharacterLod}" VerticalAlignment="Center" IsVisible="{Binding ShowCharacterOptions}"
                   ToolTip.Tip="Character detail level: LOD 0 is the cutscene model, LOD 1-3 are in-game, most to least detailed">
           <ComboBoxItem Content="LOD 0" />
           <ComboBoxItem Content="LOD 1" />
           <ComboBoxItem Content="LOD 2" />
           <ComboBoxItem Content="LOD 3" />
         </ComboBox>
-        <ToggleButton Content="Breakup" IsChecked="{Binding ShowBreakup}" ToolTip.Tip="Show the brick pieces a character falls apart into when smashed" />
+        <ToggleButton Content="Breakup" IsChecked="{Binding ShowBreakup}" IsVisible="{Binding ShowCharacterOptions}" ToolTip.Tip="Show the brick pieces a character falls apart into when smashed" />
         <ToggleButton Content="PoIs" IsChecked="{Binding ShowPoIs}" ToolTip.Tip="Show Points of Interest" />
         <ToggleButton Content="Shading" IsChecked="{Binding ShapeShading}"
                       ToolTip.Tip="Shade models so their shape is visible: surfaces turned away from you get darker. Off shows the flat colours the textures and vertex colours give (the game adds its own lighting)." />

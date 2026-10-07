@@ -98,6 +98,10 @@ namespace Diorama.Rendering
             Camera = new Camera(Vector3.Zero);
             CameraController = new CameraController(Camera);
 
+            // the LOD picker and Breakup toggle only show while a character is open
+            Scenes.CollectionChanged += (_, _) => RenderOptions.AnyCharacter = Scenes.Any(s =>
+                s.CharacterLodCount > 1 || s.SpecialObjects.OfType<EditorSpecialObject>().Any(o => o.IsBreakup));
+
             SafeRestructure = new RelayCommand<IHierarchySelectable>(async (IHierarchySelectable? sender) =>
             {
                 SelectedHierarchyObject = null;

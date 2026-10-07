@@ -53,5 +53,28 @@ namespace Diorama.UI.ViewModels
 
         // Unlit models are flat colour, which hides their shape: this darkens surfaces turned away from the viewer
         public static bool ShapeShading { get; set; } = true;
+
+        private static bool anyCharacter;
+        private static event Action? AnyCharacterChanged;
+
+        /// <summary>Whether an open scene is a character with LODs, so the LOD picker and Breakup toggle mean something.</summary>
+        public static bool AnyCharacter
+        {
+            get => anyCharacter;
+            set
+            {
+                if (anyCharacter == value) return;
+                anyCharacter = value;
+                AnyCharacterChanged?.Invoke();
+            }
+        }
+
+        /// <summary><see cref="AnyCharacter"/> for the toolbar's bindings, which need a change notification.</summary>
+        public bool ShowCharacterOptions => anyCharacter;
+
+        public RenderOptions()
+        {
+            AnyCharacterChanged += () => Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(ShowCharacterOptions)));
+        }
     }
 }
