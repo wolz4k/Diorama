@@ -53,7 +53,7 @@
         <ToggleButton Content="Points" IsChecked="{Binding ShowPoIs}" ToolTip.Tip="Show the points of interest: named spots on a character where the game attaches things, such as Hat_Locator (hats and hair), RightHand_Locator (held items) and Breath_Locator (breath effects)" />
         <ToggleButton Content="Shading" IsChecked="{Binding ShapeShading}"
                       ToolTip.Tip="Shade models so their shape is visible: surfaces turned away from you get darker. Off shows the flat colours the textures and vertex colours give (the game adds its own lighting)." />
-        <Button Content="👁️">
+        <Button Content="👁️" ToolTip.Tip="Debug views: show only the vertex colours (or one channel of them), and turn specular highlights and reflections on or off">
           <Button.Flyout>
             <Flyout Placement="BottomEdgeAlignedRight">
               <controls:RenderOptionsPanel x:Name="RenderOptionsPanel" />
