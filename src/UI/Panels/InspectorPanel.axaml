@@ -30,6 +30,7 @@
           <TextBlock TextWrapping="Wrap" Text="Click a part in the view, or an item in the list above, to see and edit it here." />
           <TextBlock TextWrapping="Wrap" Text="Hold the right mouse button in the view to look around. While holding it, W A S D move, Space and Ctrl go up and down, and Shift goes faster." />
           <TextBlock TextWrapping="Wrap" Text="F moves the camera to the picked part." />
+          <TextBlock TextWrapping="Wrap" Text="Right-click the scene's name in the list for saving, textures and exporting to Blender." />
         </StackPanel>
         <ContentControl Content="{Binding Controller.SelectedHierarchyObject}">
           <ContentControl.DataTemplates>

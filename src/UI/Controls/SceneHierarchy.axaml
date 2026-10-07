@@ -32,18 +32,23 @@
                     <MenuItem Header="Save GScene" Command="{Binding $parent[TreeView].DataContext.SaveSceneCommand}" CommandParameter="{Binding}"
                               ToolTip.Tip="Overwrite the file you opened (the first save keeps the original as .bak)"/>
                     <MenuItem Header="Save GScene As..." Command="{Binding $parent[TreeView].DataContext.SaveSceneAsCommand}" CommandParameter="{Binding}"
-                              ToolTip.Tip="Save to a new file, for example in your mod folder; its textures and other companion files are copied beside it"/>
-                    <MenuItem Header="Remove Scene" Command="{Binding $parent[TreeView].DataContext.RemoveSceneCommand}" CommandParameter="{Binding}"/>
-                    <MenuItem Header="Export Scene" Command="{Binding $parent[TreeView].DataContext.ExportSceneCommand}" CommandParameter="{Binding}"/>
+                              ToolTip.Tip="Save to a new file, for example in your mod folder. Its textures (with any you replaced) are saved beside it, and its .RES and shader files copied, under the new name."/>
+                    <MenuItem Header="Close Scene" Command="{Binding $parent[TreeView].DataContext.RemoveSceneCommand}" CommandParameter="{Binding}"
+                              ToolTip.Tip="Close it in Diorama. The file isn't touched; unsaved changes are lost."/>
+                    <MenuItem Header="Export Scene as glTF..." Command="{Binding $parent[TreeView].DataContext.ExportSceneCommand}" CommandParameter="{Binding}"
+                              ToolTip.Tip="Write the whole scene to a .glTF, for Blender or other 3D tools"/>
                     <MenuItem Header="Export Parts as OBJ..." Command="{Binding $parent[TreeView].DataContext.ExportPartsObjCommand}" CommandParameter="{Binding}"
                               ToolTip.Tip="Write every part shown right now (the picked LOD) to one .OBJ for Blender, one object per part, with its textures."/>
                     <MenuItem Header="Replace Parts from OBJ..." Command="{Binding $parent[TreeView].DataContext.ReplacePartsObjCommand}" CommandParameter="{Binding}"
                               ToolTip.Tip="Bring back an .OBJ made with Export Parts as OBJ. Each object replaces the part its name ends with (__m number); unchanged parts are left alone."/>
                     <MenuItem Header="Undo Mesh Replacement" Command="{Binding $parent[TreeView].DataContext.UndoMeshReplaceCommand}" CommandParameter="{Binding}"
                               ToolTip.Tip="Put back the meshes as they were before the last Replace mesh or Replace Parts from OBJ (each use undoes one more)."/>
-                    <MenuItem Header="Edit Resource Header" Command="{Binding $parent[TreeView].DataContext.EditResourceHeaderCommand}" CommandParameter="{Binding}"/>
-                    <MenuItem Header="Edit Textures" Command="{Binding $parent[TreeView].DataContext.EditTexturesCommand}" CommandParameter="{Binding}"/>
-                    <MenuItem Header="Save Textures" Command="{Binding $parent[TreeView].DataContext.SaveTexturesCommand}" CommandParameter="{Binding}"/>
+                    <MenuItem Header="Edit Resource Header" Command="{Binding $parent[TreeView].DataContext.EditResourceHeaderCommand}" CommandParameter="{Binding}"
+                              ToolTip.Tip="The other files this scene names: its textures, shaders, the LEGO texture page, shared texture scenes. Save As doesn't rename them."/>
+                    <MenuItem Header="Edit Textures" Command="{Binding $parent[TreeView].DataContext.EditTexturesCommand}" CommandParameter="{Binding}"
+                              ToolTip.Tip="See every texture of the scene, export one as .DDS to paint over, and replace it with yours"/>
+                    <MenuItem Header="Save Textures" Command="{Binding $parent[TreeView].DataContext.SaveTexturesCommand}" CommandParameter="{Binding}"
+                              ToolTip.Tip="Write replaced textures into the scene's .NXG_TEXTURES (the first save keeps the original as .bak)"/>
                   </ContextMenu>
                 </TextBlock.ContextMenu>  
               </TextBlock>
