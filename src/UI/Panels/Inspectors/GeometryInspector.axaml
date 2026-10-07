@@ -1,4 +1,4 @@
-<ResourceDictionary xmlns="https://github.com/avaloniaui"
+﻿<ResourceDictionary xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="using:Diorama">
 
@@ -35,8 +35,12 @@
                   InputLabel="Scale" IsEnabled="{Binding CanEditTransform}"/>
 
               <StackPanel Orientation="Horizontal">
-                <Button Content="Replace mesh" x:Name="ReplaceMesh"/>
-                <Button Content="Export mesh" x:Name="ExportMesh"/>
+                <Button Content="Replace mesh" x:Name="ReplaceMesh"
+                        ToolTip.Tip="Swap this part's shape for one from an .OBJ or .glTF file (for example, one you edited in Blender). The material stays the same. Anything an .OBJ can't hold (bone weights, vertex alpha, lightmap UVs, and colours if it has none) is copied from the nearest vertex of the old shape. A report says what was carried over."/>
+                <Button Content="Export mesh" x:Name="ExportMesh"
+                        ToolTip.Tip="Save this part as an .OBJ (with an .MTL and its diffuse texture as a .DDS) or a .glTF, to edit in Blender. When exporting back to .OBJ from Blender, keep Y up / -Z forward and tick UV Coordinates, Normals and Colors."/>
+                <Button Content="Undo replace" x:Name="UndoReplace"
+                        ToolTip.Tip="Put back the mesh as it was before the last Replace mesh in this scene (each click undoes one more)."/>
                 <Button Content="DEBUG" x:Name="DebugMesh" />
               </StackPanel>
             </StackPanel>

@@ -18,6 +18,7 @@ namespace Diorama.Core.Types
 
             int count = file.ReadInt(true);
             var list = new List<T>();
+            VectorMarkers.Saw(marker, list);
 
             bool isVectorSerializable =
                 typeof(IVectorSerializable).IsAssignableFrom(typeof(T));
@@ -41,7 +42,7 @@ namespace Diorama.Core.Types
 
         public static void WriteVectorArray<T>(RawFile file, List<T> items, uint parentVersion = 0)
         {
-            if (AppSettings.ShouldWriteROTV)
+            if (VectorMarkers.ShouldWriteFor(items))
             {
                 file.WriteString("ROTV");
             }

@@ -24,6 +24,10 @@ public class GeometryInspector : TemplatedControl
         if (exportMeshButton != null)
             exportMeshButton.Click += ExportMeshClick;
 
+        var undoReplaceButton = e.NameScope.Find<Button>("UndoReplace");
+        if (undoReplaceButton != null)
+            undoReplaceButton.Click += (_, _) => viewmodel?.UndoReplace();
+
         var debugMeshButton = e.NameScope.Find<Button>("DebugMesh");
 
         if (debugMeshButton != null)

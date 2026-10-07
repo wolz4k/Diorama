@@ -45,12 +45,17 @@ namespace Diorama.Core.Filetypes.GSC
 
         public byte[] Trailer;
 
+        /// <summary>Whether this file's vector arrays start with "ROTV" (true) or zeros (false); null if it has none.</summary>
+        public bool? UsesRotvMarkers;
+
         protected abstract void Parse(GSerializationContext ctx);
 
         public abstract void Handle(SchemaSerializer schema, uint parentVersion = 0);
 
         public void Write(RawFile file, GSerializationContext ctx)
         {
+            using var markers = VectorMarkers.WriteAs(UsesRotvMarkers);
+
             SchemaSerializer schema = new SchemaSerializer(file, true);
             schema.SetContext(ctx);
 
@@ -76,6 +81,7 @@ namespace Diorama.Core.Filetypes.GSC
         {
             GScene gsc;
             SchemaSerializer schema = new SchemaSerializer(file, false);
+            VectorMarkers.Reset();
 
             NuResourceHeader header = null;
             schema.Handle(ref header);
@@ -122,6 +128,7 @@ namespace Diorama.Core.Filetypes.GSC
 
             //gsc.Parse(context);
             gsc.Path = gsc.file.FileLocation.FullPath;
+            gsc.UsesRotvMarkers = VectorMarkers.Seen;
 
             //if (file.Position != resourceHeaderSize + 4 + 4 + gscSize)
             //{

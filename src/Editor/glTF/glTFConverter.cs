@@ -275,43 +275,11 @@ namespace Diorama.Editor.glTF
                 }
             }
 
-            VertexList[] vertexLists = new VertexList[originalMesh.VertexBuffers.Length];
-            RenderVertexBuffer[] vertexBuffers = new RenderVertexBuffer[vertexLists.Length];
-            for (int i = 0; i < vertexLists.Length; i++)
-            {
-                var vertexList = VertexList.FromVertices(vertices, originalMesh.VertexBuffers[i].Attributes);
-                var vBuffer = (RenderVertexBuffer)scene.GetOrAdd(RenderVertexBuffer.FromBuffer(vertexList));
-                vertexLists[i] = vBuffer.Original;
-                vertexBuffers[i] = vBuffer;
-            }
-
-            RenderIndicesBuffer indicesBuffer = (RenderIndicesBuffer)scene.GetOrAdd(RenderIndicesBuffer.FromBuffer(indices.ToArray()));
-
-            RenderMesh mesh = new RenderMesh(vertexBuffers, indicesBuffer);
-            mesh.IndicesBase = 0;
-            mesh.IndicesCount = indices.Count;
-            mesh.VerticesBase = 0;
-            mesh.VerticesCount = vertices.Count;
-
-            
-            nuMesh.VertexBuffers = vertexLists;
-            nuMesh.Indices = indicesBuffer.Indices;
-            nuMesh.IndicesBase = 0;
-            nuMesh.IndicesCount = (uint)indices.Count;
-            nuMesh.VerticesBase = 0;
-            nuMesh.VerticesCount = (uint)vertices.Count;
-
-            for (int i = 0; i < vertexLists.Length; i++)
-            { // fixes a vertex explosion
-                nuMesh.VertexBufferFlags[i] = 0x502;
-                nuMesh.VertexBufferOffsets[i] = 0;
-            }
-
-            nuMesh.IndicesFlags = 0x102;
-
-            mesh.OriginalMesh = nuMesh;
-
-            return mesh;
+            // the same steps as an OBJ: expressions rebuilt for the new vertices, buffers (shared ones kept valid), flags, culling box
+            Vertex[] original = OBJConverter.ReadVertices(nuMesh);
+            OBJConverter.RemapBlendShapes(nuMesh, original, vertices);
+            OBJConverter.SetMeshData(nuMesh, vertices, indices.ToArray(), scene.OriginalScene.MeshSceneBlock.Meshes);
+            return OBJConverter.BuildRenderMesh(nuMesh, scene);
         }
 
         //private static T ReadAccessor<T>(RawFile binary, )

@@ -63,6 +63,26 @@ namespace Diorama.Rendering
         public ICommand SaveSceneCommand { get; }
         public ICommand RemoveSceneCommand { get; }
         public ICommand ExportSceneCommand { get; }
+        public ICommand ExportPartsObjCommand { get; }
+        public ICommand ReplacePartsObjCommand { get; }
+        public ICommand UndoMeshReplaceCommand { get; }
+
+        /// <summary>Takes back the scene's last mesh replacement (single part or a parts OBJ), on the render thread.</summary>
+        public void UndoMeshReplace(EditorScene scene)
+        {
+            RenderService.Current.Enqueue(() =>
+            {
+                if (scene.MeshUndo.Count == 0)
+                {
+                    ShowMessageDialog("Nothing to undo", ["No mesh in this scene has been replaced since it was opened."]);
+                    return;
+                }
+                var snapshot = scene.MeshUndo.Pop();
+                snapshot.Restore();
+                ShowMessageDialog("Mesh replacement undone", [$"Undid: {snapshot.Label}.",
+                    scene.MeshUndo.Count > 0 ? $"{scene.MeshUndo.Count} earlier replacement(s) can still be undone." : "The meshes are back as they were when the scene was opened (or last saved)."]);
+            });
+        }
         public ICommand EditResourceHeaderCommand { get; }
         public ICommand EditTexturesCommand { get; }
         public ICommand SaveTexturesCommand { get; }
@@ -134,6 +154,61 @@ namespace Diorama.Rendering
                 }
 
                 glTFConverter.WriteObjectsToGltf(geometries, outputPath);
+            });
+
+            ExportPartsObjCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
+            {
+                if (sender == null) return;
+
+                string? outputPath = await MainWindow?.OpenSaveMenu("Export Parts as OBJ", "obj");
+                if (outputPath == null) return;
+
+                try
+                {
+                    int count = OBJConverter.ExportParts(sender, outputPath);
+                    ShowMessageDialog("Parts exported", [
+                        $"Wrote {count} parts to {Path.GetFileName(outputPath)}, with an .MTL and the textures beside it.",
+                        "Each part is a separate object in Blender. Keep the \"__m\" number at the end of each name: it is how Replace Parts from OBJ finds the part again.",
+                        "When exporting from Blender, keep Y up / -Z forward and tick UV Coordinates, Normals and Colors."]);
+                }
+                catch (Exception ex)
+                {
+                    ShowMessageDialog("Could not export the parts", [ex.Message]);
+                }
+            });
+
+            ReplacePartsObjCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
+            {
+                if (sender == null) return;
+
+                string? inputPath = await MainWindow?.OpenFileMenu("Replace Parts from OBJ", "obj");
+                if (inputPath == null) return;
+
+                RenderService.Current.Enqueue(() =>
+                {
+                    var snapshot = MeshSnapshot.Take(sender, $"Replace parts from {Path.GetFileName(inputPath)}");
+                    try
+                    {
+                        var notes = OBJConverter.ImportParts(sender, inputPath);
+                        if (notes.Count > 0 && notes[0].StartsWith("Replaced"))
+                        {
+                            sender.MeshUndo.Push(snapshot);
+                            notes.Add("Not what you wanted? Undo Mesh Replacement in the scene's right-click menu puts the old parts back.");
+                        }
+                        ShowMessageDialog("Parts replaced", notes.Select(n => "• " + n));
+                    }
+                    catch (Exception ex)
+                    {
+                        snapshot.Restore();
+                        ShowMessageDialog("Could not import the parts", [ex.Message]);
+                    }
+                });
+            });
+
+            UndoMeshReplaceCommand = new RelayCommand<EditorScene>((EditorScene? sender) =>
+            {
+                if (sender != null)
+                    UndoMeshReplace(sender);
             });
 
             EditResourceHeaderCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>

@@ -35,25 +35,55 @@ namespace Diorama.UI.ViewModels
 
             RenderService.Current.Enqueue(() =>
             {
+                var snapshot = MeshSnapshot.Take(scene, $"Replace with {Path.GetFileName(path)}");
                 try
                 {
+                    RenderMesh oldMesh = selectedGeo.Mesh;
                     RenderMesh newMesh;
+                    List<string> notes = null;
                     if (isGLTF(path))
                     {
-                        newMesh = glTFConverter.GetObjectsFromGltf(path, selectedGeo.Mesh, scene);
+                        newMesh = glTFConverter.GetObjectsFromGltf(path, oldMesh, scene);
                     }
                     else
                     {
-                        newMesh = OBJConverter.MeshFromOBJ(path, selectedGeo.Mesh, scene);
+                        newMesh = OBJConverter.MeshFromOBJ(path, oldMesh, scene, out notes);
                     }
 
+                    // the game mesh was changed in place, so every object drawing it gets the new one
+                    int sharing = 0;
+                    foreach (var geo in scene.AllGeometry())
+                    {
+                        if (geo.Mesh == oldMesh || geo.Mesh?.OriginalMesh == newMesh.OriginalMesh)
+                        {
+                            geo.Mesh = newMesh;
+                            sharing++;
+                        }
+                    }
                     selectedGeo.Mesh = newMesh;
+                    scene.MeshUndo.Push(snapshot);
+
+                    if (notes != null)
+                    {
+                        if (sharing > 1)
+                            notes.Insert(1, $"{sharing} objects in this scene use this mesh, and all of them now show the new one.");
+                        notes.Add("Not what you wanted? Undo replace (in the inspector, or the scene's right-click menu) puts the old mesh back.");
+                        Controller.ShowMessageDialog("Mesh replaced", notes.Select(n => "• " + n));
+                    }
                 }
                 catch (Exception ex)
                 {
+                    snapshot.Restore(); // a failed import leaves the scene as it was
                     Controller.ShowMessageDialog("Could not import from file", [ex.Message]);
                 }
             });
+        }
+
+        public void UndoReplace()
+        {
+            var scene = Controller.SelectedGeometry?.Parent?.SceneOwner ?? Controller.Scenes.FirstOrDefault();
+            if (scene != null)
+                Controller.UndoMeshReplace(scene);
         }
 
         public void ExportMesh(string path)
@@ -62,13 +92,20 @@ namespace Diorama.UI.ViewModels
 
             var selectedGeo = Controller.SelectedGeometry;
 
-            if (isGLTF(path))
+            try
             {
-                glTFConverter.WriteObjectsToGltf([selectedGeo], path);
+                if (isGLTF(path))
+                {
+                    glTFConverter.WriteObjectsToGltf([selectedGeo], path);
+                }
+                else
+                {
+                    OBJConverter.WriteMeshToOBJ(selectedGeo, path);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                OBJConverter.WriteMeshToOBJ(selectedGeo.Mesh, path);
+                Controller.ShowMessageDialog("Could not export the mesh", [ex.Message]);
             }
 
         }

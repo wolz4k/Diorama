@@ -211,6 +211,21 @@ namespace Diorama
             return file?.TryGetLocalPath();
         }
 
+        public async Task<string?> OpenFileMenu(string title, string extension)
+        {
+            if (StorageProvider == null)
+                throw new Exception("Unable to access filesystem");
+
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = false,
+                FileTypeFilter = [new FilePickerFileType(extension) { Patterns = [$"*.{extension.TrimStart('.')}"] }]
+            });
+
+            return files.FirstOrDefault()?.TryGetLocalPath();
+        }
+
         private void SaveFile_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
         }

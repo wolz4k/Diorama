@@ -18,7 +18,33 @@ namespace Diorama.Editor
 {
     public class EditorGeometryObject : IHierarchySelectable, INotifyPropertyChanged, IRenderable
     {
-        public string Name => "Geometry Object";
+        /// <summary>What the hierarchy shows: the material, so parts can be told apart, and the size.</summary>
+        public string Name => $"{(Material?.Name is { Length: > 0 } material ? material : "Geometry")} · {Mesh?.VerticesCount ?? 0:N0} vertices";
+
+        /// <summary>The hierarchy's tooltip: which mesh of the file this is and what it carries.</summary>
+        public string Summary
+        {
+            get
+            {
+                var nuMesh = Mesh?.OriginalMesh;
+                if (nuMesh == null) return "Geometry";
+                var meshes = Parent?.SceneOwner?.OriginalScene?.MeshSceneBlock?.Meshes;
+                int index = meshes == null ? -1 : Array.IndexOf(meshes, nuMesh);
+                int shapes = 0;
+                for (var shape = nuMesh.Shape; shape != null; shape = shape.Next) shapes++;
+                int bones = nuMesh.SkinMtxMap?.Count(b => b != 0xff) ?? 0;
+
+                var lines = new List<string>
+                {
+                    $"{(index >= 0 ? $"Mesh {index} of the file" : "Mesh")}: {nuMesh.VerticesCount:N0} vertices, {nuMesh.IndicesCount / 3:N0} triangles",
+                    $"Material: {Material?.Name ?? "none"}",
+                };
+                if (bones > 0) lines.Add($"Skinned to {bones} bone{(bones == 1 ? "" : "s")}: it bends with the character's joints");
+                if (shapes > 0) lines.Add($"{shapes} blend shape{(shapes == 1 ? "" : "s")} (facial expressions)");
+                lines.Add("Select it, then use Replace mesh / Export mesh in the inspector");
+                return string.Join(Environment.NewLine, lines);
+            }
+        }
         public IEnumerable<IHierarchySelectable> Children => Enumerable.Empty<IHierarchySelectable>();
 
         public EditorClipObject Parent { get; set; }
@@ -41,6 +67,8 @@ namespace Diorama.Editor
                     Original.MaterialIndex = (short)value.OriginalIndex;
                 }
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(Name));
+                OnPropertyChanged(nameof(Summary));
                 UpdateCompatibility();
             }
         }
@@ -96,7 +124,24 @@ namespace Diorama.Editor
 
         public EditorLightmap Lightmap { get; set; }
         
-        public RenderMesh Mesh { get; set; }
+        private RenderMesh mesh;
+        public RenderMesh Mesh
+        {
+            get => mesh;
+            set
+            {
+                mesh = value;
+                // replacing a mesh happens on the render thread; bindings must hear about it on the UI thread
+                void Notify()
+                {
+                    OnPropertyChanged(nameof(Mesh));
+                    OnPropertyChanged(nameof(Name));
+                    OnPropertyChanged(nameof(Summary));
+                }
+                if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) Notify();
+                else Avalonia.Threading.Dispatcher.UIThread.Post(Notify);
+            }
+        }
 
         public NuCharacterData HighestDetail { get; set; }
 
