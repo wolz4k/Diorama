@@ -58,14 +58,15 @@ namespace Diorama
             {
                 MainViewport.RunSaveSweep(args[2]);
             }
-            else if (args.Length > 1)
+            else
             {
-                if (!File.Exists(args[1]))
+                foreach (string path in args.Skip(1)) // Diorama.exe A_DX11.GSC B_DX11.GSC opens both
                 {
-                    Console.WriteLine("Invalid file path provided for scene");
-                    return;
+                    if (File.Exists(path))
+                        MainViewport.LoadScene(path);
+                    else
+                        Console.WriteLine($"No such scene file: {path}");
                 }
-                MainViewport.LoadScene(args[1]);
             }
 
             this.AttachDevTools();
@@ -73,23 +74,25 @@ namespace Diorama
 
         private void Window_DragDrop(object sender, DragEventArgs e)
         {
-            string firstFile = string.Empty;
+            var dropped = new List<string>();
             if (e.DataTransfer.Formats.Contains(DataFormat.File))
             {
                 var files = e.DataTransfer.TryGetFiles();
                 if (files != null)
                 {
-                    firstFile = files.First().Path.LocalPath;
+                    dropped.AddRange(files.Select(f => f.Path.LocalPath)
+                        .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".ghg", StringComparison.OrdinalIgnoreCase)));
                 }
             }
 
-            if (firstFile == string.Empty) return;
+            if (dropped.Count == 0) return;
 
 #if DEBUG // When triggering a breakpoint, explorer sort of just freezes until the code continues which is insufferable
                     Dispatcher.UIThread.Invoke(new Action(() =>
             {
 #endif
-                MainViewport.LoadScene(firstFile);
+                foreach (string path in dropped)
+                    MainViewport.LoadScene(path);
 #if DEBUG
             }), DispatcherPriority.Background);
 #endif
@@ -139,19 +142,15 @@ namespace Diorama
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "Open GScene File",
-                AllowMultiple = false,
+                AllowMultiple = true, // several pieces of a level open together
                 FileTypeFilter = new[]
                 {
                     new FilePickerFileType("GScene files") { Patterns = new[] { "*.GSC", "*.GHG" } }
                 }
             });
 
-            if (files.Count > 0)
-            {
-                string filePath = files[0].Path.LocalPath;
-
-                MainViewport.LoadScene(filePath);
-            }
+            foreach (var file in files)
+                MainViewport.LoadScene(file.Path.LocalPath);
         }
 
         private void OpenArchiveFile_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

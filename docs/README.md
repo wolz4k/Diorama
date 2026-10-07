@@ -17,6 +17,7 @@ Diorama opens the 3D scenes of Traveller's Tales' LEGO games (`.GSC` levels and 
 
 - View level / general geometry with full texture support.
 - Scenes that use the shared LEGO texture page (`LEGOTPAGE\*.TEX`) find it in an extracted install by themselves, without setting the game folder in Settings.
+- Open several scenes at once (pick or drag several files, or `Diorama.exe A.GSC B.GSC`), for example all the pieces of a hub area, and the camera frames them together.
 - Hub level pieces (Arkham, Apokolips, Gotham...) show their textures, which the game keeps in a shared texture scene such as `ARKHAM_TEXTURES_DX11.GSC`; Edit Textures says which file a texture really lives in, and exports its image from there. Textures that can't be found anywhere show white instead of black.
 - View the hierarchy of a scene, and change the name of special objects where possible. Each mesh is listed by its material and size (`MAT_Eyeshadow · 464 vertices`); hover it to see which mesh of the file it is, its triangles, how many bones it bends with and how many facial expressions it has.
 - View and edit the transformations of objects in the scene, and save them.

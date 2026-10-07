@@ -476,7 +476,7 @@ namespace Diorama.Rendering
             {
                 EditorScene scene = GSceneConverter.FromGScene(path, out List<string> problems);
                 Scenes.Add(scene);
-                CameraController.FrameScene(scene);
+                CameraController.FrameScenes(Scenes); // all of them, for several pieces of one area
                 ShowSceneLoadProblems(problems);
             }
         }

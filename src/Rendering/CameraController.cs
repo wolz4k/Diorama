@@ -135,40 +135,46 @@ namespace Diorama.Rendering
         /// Places the camera so the whole scene is in view, looking slightly down at it.
         /// Bounds are in DX coordinate space, like FocusOn.
         /// </summary>
-        public void FrameScene(EditorScene scene)
+        public void FrameScene(EditorScene scene) => FrameScenes([scene]);
+
+        /// <summary>Points the camera at everything shown in <paramref name="scenes"/>, such as the pieces of a hub area.</summary>
+        public void FrameScenes(IEnumerable<EditorScene> scenes)
         {
             Vector3 min = new Vector3(float.MaxValue), max = new Vector3(float.MinValue);
             bool any = false;
 
-            foreach (EditorSceneObject obj in scene.Objects.OfType<EditorSceneObject>())
+            foreach (var scene in scenes)
             {
-                if (!scene.IsShown(obj))
-                    continue;
-
-                Vector3 center = obj.BoundsCenterAndDistSqrd.Xyz;
-                Vector3 extents = obj.BoundsExtentsAndRadius.Xyz;
-
-                if (extents != Vector3.Zero && float.IsFinite(center.X + center.Y + center.Z + extents.X + extents.Y + extents.Z))
+                foreach (EditorSceneObject obj in scene.Objects.OfType<EditorSceneObject>())
                 {
-                    for (int corner = 0; corner < 8; corner++)
-                    {
-                        Vector3 p = EditorUtils.FlipCoordSpace(center + extents * Corner(corner));
-                        min = Vector3.ComponentMin(min, p);
-                        max = Vector3.ComponentMax(max, p);
-                    }
-                    any = true;
-                    continue;
-                }
-
-                // characters leave their instance bounds zeroed: measure the parts instead
-                var clip = obj.ClipObject ?? obj.Lods?.FirstOrDefault()?.ClipObject;
-                foreach (var geo in clip?.Elements ?? [])
-                {
-                    if (!GeometryBounds(geo, out Vector3 geoMin, out Vector3 geoMax))
+                    if (!scene.IsShown(obj))
                         continue;
-                    min = Vector3.ComponentMin(min, geoMin);
-                    max = Vector3.ComponentMax(max, geoMax);
-                    any = true;
+
+                    Vector3 center = obj.BoundsCenterAndDistSqrd.Xyz;
+                    Vector3 extents = obj.BoundsExtentsAndRadius.Xyz;
+
+                    if (extents != Vector3.Zero && float.IsFinite(center.X + center.Y + center.Z + extents.X + extents.Y + extents.Z))
+                    {
+                        for (int corner = 0; corner < 8; corner++)
+                        {
+                            Vector3 p = EditorUtils.FlipCoordSpace(center + extents * Corner(corner));
+                            min = Vector3.ComponentMin(min, p);
+                            max = Vector3.ComponentMax(max, p);
+                        }
+                        any = true;
+                        continue;
+                    }
+
+                    // characters leave their instance bounds zeroed: measure the parts instead
+                    var clip = obj.ClipObject ?? obj.Lods?.FirstOrDefault()?.ClipObject;
+                    foreach (var geo in clip?.Elements ?? [])
+                    {
+                        if (!GeometryBounds(geo, out Vector3 geoMin, out Vector3 geoMax))
+                            continue;
+                        min = Vector3.ComponentMin(min, geoMin);
+                        max = Vector3.ComponentMax(max, geoMax);
+                        any = true;
+                    }
                 }
             }
 
