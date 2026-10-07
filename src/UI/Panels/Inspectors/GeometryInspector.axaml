@@ -33,6 +33,9 @@
               <controls:Vec3Input
                   Value="{Binding Scale, Mode=TwoWay}"
                   InputLabel="Scale" IsEnabled="{Binding CanEditTransform}"/>
+              <TextBlock TextWrapping="Wrap" Opacity="0.7" Margin="2,2,2,6"
+                         IsVisible="{Binding !CanEditTransform}"
+                         Text="This part has no position of its own (a character's parts are placed by its skeleton), so it can't be moved here. To move or reshape it, Export mesh, edit it in Blender, then Replace mesh." />
 
               <StackPanel Orientation="Horizontal">
                 <Button Content="Replace mesh" x:Name="ReplaceMesh"
