@@ -20,7 +20,7 @@ namespace Diorama.Core.IO
             {
                 if (extensions.Length == 0 || extensions.Any(ext => filePath.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                 {
-                    using var file = new RawFile(filePath);
+                    using var file = ReadOnlyFile.Open(filePath);
                     yield return file;
                 }
             }

@@ -985,7 +985,7 @@ namespace Diorama.Editor
 
                 NxgShaders shaders = null;
 
-                using (RawFile file = new RawFile(shaderPath))
+                using (RawFile file = ReadOnlyFile.Open(shaderPath))
                 {
                     shaders = NxgShaders.Read(file);
 

@@ -53,7 +53,7 @@ namespace Diorama.Core.Filetypes.TEXTURES
 
             try
             {
-                using (RawFile nxgFile = new RawFile(filePath))
+                using (RawFile nxgFile = ReadOnlyFile.Open(filePath))
                 {
                     SchemaSerializer schema = new SchemaSerializer(nxgFile, false);
 

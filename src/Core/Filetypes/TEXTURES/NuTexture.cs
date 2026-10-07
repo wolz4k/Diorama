@@ -1,4 +1,5 @@
-﻿using Avalonia.Input;
+﻿using Diorama.Core.IO;
+using Avalonia.Input;
 using Diorama.Core.Filetypes.GSC.Components;
 using OpenTK.Graphics.OpenGL4;
 using System;
@@ -163,7 +164,7 @@ namespace Diorama.Core.Filetypes.TEXTURES
 
         public static NuTexture Load(string filePath, NuTexGenHdr header)
         {
-            using (RawFile file = new RawFile(filePath))
+            using (RawFile file = ReadOnlyFile.Open(filePath))
             {
                 return Load(file, header);
             }
