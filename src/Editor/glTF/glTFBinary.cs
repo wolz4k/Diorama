@@ -16,12 +16,8 @@ namespace Diorama.Editor.glTF
             var mesh = geo.Mesh;
             var nuMesh = mesh.OriginalMesh;
 
-            Vertex[] vertices = VertexList.CreateVerticesArray(mesh.VerticesCount);
-
-            for (int i = 0; i < nuMesh.VertexBuffers.Length; i++)
-            {
-                nuMesh.VertexBuffers[i].FillVertices(ref vertices, mesh.VerticesBase);
-            }
+            // honours each buffer's byte offset, which face parts sharing a buffer need
+            Vertex[] vertices = OBJConverter.ReadVertices(nuMesh);
 
             Dictionary<string, int> attributeOffsets = GetAttributeOffsets(mesh);
 
