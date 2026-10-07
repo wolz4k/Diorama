@@ -141,17 +141,21 @@ namespace Diorama.Rendering
         /// <summary>
         /// A check for the editor's save path (which needs OpenGL, so the tests can't run it): opens each scene listed in
         /// <paramref name="listPath"/> (one path per line), saves it through the editor to listPath.out.bin, and writes
-        /// SAME / DIFF / FAIL per scene to listPath.results, then exits. Run as Diorama.exe --save-sweep list.txt.
+        /// SAME / DIFF / FAIL per scene to listPath.results, and what opening each would have reported to listPath.notes,
+        /// then exits. Run as Diorama.exe --save-sweep list.txt.
         /// </summary>
         public void RunSaveSweep(string listPath)
         {
             var results = new List<string>();
+            var loadNotes = new List<string>();
             string outFile = listPath + ".out.bin";
             foreach (var file in File.ReadAllLines(listPath).Where(l => l.Trim().Length > 0))
             {
                 try
                 {
-                    var scene = GSceneConverter.FromGScene(file, out _);
+                    var scene = GSceneConverter.FromGScene(file, out var problems);
+                    if (problems?.Count > 0)
+                        loadNotes.Add(file + " :: " + string.Join(" | ", problems));
                     scene.OriginalScene.Path = outFile;
                     GSceneConverter.Write(scene);
                     bool same = File.ReadAllBytes(outFile).AsSpan().SequenceEqual(File.ReadAllBytes(file));
@@ -163,6 +167,7 @@ namespace Diorama.Rendering
                 }
             }
             File.WriteAllLines(listPath + ".results", results);
+            File.WriteAllLines(listPath + ".notes", loadNotes);
             Environment.Exit(0);
         }
 

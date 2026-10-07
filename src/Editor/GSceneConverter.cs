@@ -554,7 +554,12 @@ namespace Diorama.Editor
             if (scene.Metadata != null) // A bit of a sanity check
             {
                 editorScene.LoadedTextureCount = textures.Count;
-                if (scene.Metadata.MetaStrings.Count != textures.Count)
+                if (nxg_textures == null && scene.Metadata.MetaStrings.Count > 0)
+                {
+                    editorScene.MetaStringsMatchedTextures = false;
+                    problems.Add($"Note: there's no .NXG_TEXTURES file for this scene (beside it, or where its resource header says), so its {scene.Metadata.MetaStrings.Count} textures show white.");
+                }
+                else if (scene.Metadata.MetaStrings.Count != textures.Count)
                 {
                     editorScene.MetaStringsMatchedTextures = false;
                     problems.Add($"Note: the scene lists {scene.Metadata.MetaStrings.Count} texture names but its .NXG_TEXTURES file has {textures.Count} textures.");
@@ -646,6 +651,17 @@ namespace Diorama.Editor
             catch (Exception ex)
             {
                 Console.WriteLine("Could not open / parse nxg_textures file!");
+            }
+
+            // A few DLC items (FUSION_MERA_FIST in LP_AQUAMANMOVIEPART1) have no texture file beside them; their resource
+            // header names it, in another folder of the install
+            if (textures == null && scene.ResourceHeader?.FileTree?.GetIndexedFiles().Values
+                    .FirstOrDefault(p => p.EndsWith(".nxg_textures", StringComparison.OrdinalIgnoreCase)) is { } listed)
+            {
+                FileProvider.AddLooseRootsFor(filePath);
+                using RawFile? file = FileProvider.GetFile(listed);
+                if (file != null)
+                    textures = NxgTextures.Read(file);
             }
 
             NxgTextures cubemap_textures = null;
