@@ -15,6 +15,7 @@ The tool is still under development, but it already has some features implemente
 - Breakup parts (the pieces a bigfig falls apart into, shown with *Breakup*) sit on the body instead of a hip height below it.
 - Faces and other models whose parts share one vertex buffer draw correctly (each part starts partway into the buffer).
 - Saving writes a scene back exactly as the game stored it, apart from your edits (all 3,926 of DC Super-Villains' scenes come back byte for byte, faces with expressions included), so a mod only differs from the original where you changed something.
+- **Shading** (toolbar, on by default) darkens surfaces turned away from you so a model's shape is visible; the game's flat colours alone hide it. The **View** menu holds the other display switches (material lighting, lightmaps, shadow impostors, frustum culling), each ticked when on.
 - Toggle on/off lightmaps
 
 ## Editing a part in Blender

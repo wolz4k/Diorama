@@ -93,22 +93,26 @@ namespace Diorama
 
         private void LightmapItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            ViewportNewControl.ShowLightmaps = !ViewportNewControl.ShowLightmaps;
+            // a checkable View menu item: it has already flipped its tick
+            ViewportNewControl.ShowLightmaps = (sender as MenuItem)?.IsChecked ?? !ViewportNewControl.ShowLightmaps;
         }
 
         private void CameraLightItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            ViewportNewControl.UseCameraLight = !ViewportNewControl.UseCameraLight;
+            // a checkable View menu item: it has already flipped its tick
+            ViewportNewControl.UseCameraLight = (sender as MenuItem)?.IsChecked ?? !ViewportNewControl.UseCameraLight;
         }
 
         private void ShadowItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            ViewportNewControl.ShowShadowImpostors = !ViewportNewControl.ShowShadowImpostors;
+            // a checkable View menu item: it has already flipped its tick
+            ViewportNewControl.ShowShadowImpostors = (sender as MenuItem)?.IsChecked ?? !ViewportNewControl.ShowShadowImpostors;
         }
 
         private void CullingItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            ViewportNewControl.UseFrustumCulling = !ViewportNewControl.UseFrustumCulling;
+            // a checkable View menu item: it has already flipped its tick
+            ViewportNewControl.UseFrustumCulling = (sender as MenuItem)?.IsChecked ?? !ViewportNewControl.UseFrustumCulling;
         }
 
         private async void Settings_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

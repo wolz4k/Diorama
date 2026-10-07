@@ -26,10 +26,16 @@
           <MenuItem Header="Open" Click="OpenFile_Click"/>
           <MenuItem Header="Open From Source Location" Click="OpenArchiveFile_Click"/>
         </MenuItem>
-        <MenuItem Header="Toggle Camera Lighting" Click="CameraLightItem_Click" />
-        <MenuItem Header="Toggle Lightmaps" Click="LightmapItem_Click" />
-        <MenuItem Header="Toggle Shadow Impostors" Click="ShadowItem_Click" />
-        <MenuItem Header="Toggle Frustum Culling" Click="CullingItem_Click" />
+        <MenuItem Header="_View">
+          <MenuItem Header="Material Lighting" ToggleType="CheckBox" IsChecked="False" Click="CameraLightItem_Click"
+                    ToolTip.Tip="Light models the way their materials react to light (specular, reflections), with a light at the camera. Darker than the game, which adds its own scene lighting." />
+          <MenuItem Header="Lightmaps" ToggleType="CheckBox" IsChecked="False" Click="LightmapItem_Click"
+                    ToolTip.Tip="Show the light and shadow baked into level geometry" />
+          <MenuItem Header="Shadow Impostors" ToggleType="CheckBox" IsChecked="False" Click="ShadowItem_Click"
+                    ToolTip.Tip="Show the flat blob shadows the game draws under objects" />
+          <MenuItem Header="Frustum Culling" ToggleType="CheckBox" IsChecked="False" Click="CullingItem_Click"
+                    ToolTip.Tip="Skip drawing objects outside the view, which speeds up big levels" />
+        </MenuItem>
         <MenuItem Header="Settings" Click="Settings_Click" />
       </Menu>
 
@@ -43,6 +49,8 @@
         </ComboBox>
         <ToggleButton Content="Breakup" IsChecked="{Binding ShowBreakup}" ToolTip.Tip="Show the brick pieces a character falls apart into when smashed" />
         <ToggleButton Content="PoIs" IsChecked="{Binding ShowPoIs}" ToolTip.Tip="Show Points of Interest" />
+        <ToggleButton Content="Shading" IsChecked="{Binding ShapeShading}"
+                      ToolTip.Tip="Shade models so their shape is visible: surfaces turned away from you get darker. Off shows the flat colours the textures and vertex colours give (the game adds its own lighting)." />
         <Button Content="👁️">
           <Button.Flyout>
             <Flyout Placement="BottomEdgeAlignedRight">

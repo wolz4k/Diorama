@@ -54,6 +54,7 @@ uniform vec2 lm_scale;
 uniform int lightmap_uvset;
 
 uniform bool lightingEnabled;
+uniform bool shapeShading;
 
 uniform int alphaTestMode;
 uniform float alphaRef;
@@ -375,6 +376,13 @@ void main()
     if (!lightingEnabled || lightingmodel == 0)
     {
         vec3 unlitColor = albedo * vertexColor;
+
+        if (shapeShading)
+        {
+            // a soft light from the viewer, so the shape reads; abs() because some meshes are wound the other way
+            float facing = abs(dot(normal, normalize(camera - FragPos)));
+            unlitColor *= 0.55 + 0.45 * facing;
+        }
 
         FragColor = vec4(unlitColor, albedoAlpha);
 

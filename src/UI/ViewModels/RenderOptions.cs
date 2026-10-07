@@ -50,5 +50,8 @@ namespace Diorama.UI.ViewModels
         public static int CharacterLod { get; set; } = 0;
 
         public static bool ShowBreakup { get; set; } = false;
+
+        // Unlit models are flat colour, which hides their shape: this darkens surfaces turned away from the viewer
+        public static bool ShapeShading { get; set; } = true;
     }
 }
