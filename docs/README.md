@@ -12,6 +12,7 @@ The tool is still under development, but it already has some features implemente
 - View and edit (but not save, yet!) the transformations of objects in the scene.
 - Swap the geometry in the scene with other geometry from a .OBJ file (see "Editing a part in Blender" below).
 - Change the primary material colour
+- Faces and other models whose parts share one vertex buffer draw correctly (each part starts partway into the buffer).
 - Saving writes a scene back exactly as the game stored it, apart from your edits (all 3,926 of DC Super-Villains' scenes come back byte for byte, faces with expressions included), so a mod only differs from the original where you changed something.
 - Toggle on/off lightmaps
 
@@ -33,7 +34,7 @@ Right-click the scene in the hierarchy and choose **Export Parts as OBJ...** to 
 
 After editing, **Replace Parts from OBJ...** puts each object back on its part. Parts you didn't change are recognised and left exactly as they were, objects without an `__m` number are skipped (join new geometry into the part it belongs to with Ctrl+J), and a report lists what happened.
 
-A game mesh can hold at most 65,536 vertices (after splitting along UV seams and hard edges). Parts with blend shapes (facial expressions) can be replaced, but the expressions won't fit the new shape.
+A game mesh can hold at most 65,536 vertices (after splitting along UV seams and hard edges). Faces keep their expressions when replaced: each blend shape (smile, frown, blink…) is rebuilt for the new vertices, each moving like the nearest vertex of the old face, so keep new geometry close to the face it replaces.
 
 ## Supported Games
 

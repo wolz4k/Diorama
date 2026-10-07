@@ -177,8 +177,13 @@ namespace Diorama.Editor
         public static Vertex[] ReadVertices(NuRenderMesh nuMesh)
         {
             Vertex[] vertices = VertexList.CreateVerticesArray((int)nuMesh.VerticesCount);
-            foreach (var vList in nuMesh.VertexBuffers)
-                vList.FillVertices(ref vertices, (int)nuMesh.VerticesBase);
+            for (int i = 0; i < nuMesh.VertexBuffers.Length; i++)
+            {
+                // meshes sharing a buffer (a face's parts) also start a byte offset into it
+                var vList = nuMesh.VertexBuffers[i];
+                int skip = nuMesh.VertexBufferOffsets != null && i < nuMesh.VertexBufferOffsets.Length && vList.Stride > 0 ? nuMesh.VertexBufferOffsets[i] / vList.Stride : 0;
+                vList.FillVertices(ref vertices, (int)nuMesh.VerticesBase + skip);
+            }
             return vertices;
         }
 
@@ -245,7 +250,7 @@ namespace Diorama.Editor
                 notes.Add("This part is skinned: each vertex copies the bone weights of the nearest original vertex, so it keeps following the skeleton. Keep new geometry close to the part it replaces.");
 
             if (hasBlendShape)
-                notes.Add("Warning: this part has blend shapes (facial expressions). They were made for the old vertices and will distort or break the new mesh in game.");
+                notes.Add("Warning: this part has blend shapes (facial expressions) in an older layout Diorama can't rebuild. They were made for the old vertices and will distort or break the new mesh in game.");
 
             if (original.Length > 0)
             {
@@ -340,7 +345,7 @@ namespace Diorama.Editor
         {
             ObjMeshData obj = ParseOBJ(File.ReadLines(path));
 
-            notes = ReplaceMeshData(originalMesh.OriginalMesh, obj, Path.GetFileName(path));
+            notes = ReplaceMeshData(originalMesh.OriginalMesh, obj, Path.GetFileName(path), scene.OriginalScene.MeshSceneBlock.Meshes);
             notes.Add(SaveReminder);
 
             return BuildRenderMesh(originalMesh.OriginalMesh, scene);
@@ -350,22 +355,96 @@ namespace Diorama.Editor
         /// Swaps the vertices and triangles of a game mesh for those of an .OBJ, keeping its vertex layout so the
         /// material still lines up. Returns notes for the modder about what was carried over or worked out.
         /// </summary>
-        public static List<string> ReplaceMeshData(NuRenderMesh nuMesh, ObjMeshData obj, string fileName)
+        /// <summary>
+        /// Rebuilds the mesh's blend shapes (facial expressions) for the new vertices: each takes the offsets of the nearest
+        /// original vertex. Returns how many shapes were carried over and how many are in a layout that can't be rebuilt
+        /// (left as they are). Must run before the mesh's vertex count changes.
+        /// </summary>
+        static (int Carried, int Kept) RemapBlendShapes(NuRenderMesh nuMesh, Vertex[] original, ObjMeshData obj)
+        {
+            if (nuMesh.Shape == null || original.Length == 0)
+                return (0, nuMesh.Shape != null ? 1 : 0);
+
+            var nearest = new NearestVertexFinder(original);
+            int[] source = obj.Vertices.Select(v => nearest.Find(v.Position)).ToArray();
+
+            int carried = 0, kept = 0;
+            for (var shape = nuMesh.Shape; shape != null; shape = shape.Next)
+            {
+                var offsets = shape.DecodeOffsets(original.Length);
+                if (offsets == null)
+                {
+                    kept++;
+                    continue;
+                }
+                shape.EncodeOffsets(source.Select(i => offsets[i]).ToArray());
+                carried++;
+            }
+            return (carried, kept);
+        }
+
+        static int Lcm(int a, int b)
+        {
+            int x = a, y = b;
+            while (y != 0) (x, y) = (y, x % y);
+            return a / x * b;
+        }
+
+        /// <param name="allMeshes">Every mesh of the scene, to keep buffers this mesh shares with others valid; without it the
+        /// mesh always gets buffers of its own.</param>
+        public static List<string> ReplaceMeshData(NuRenderMesh nuMesh, ObjMeshData obj, string fileName, NuRenderMesh[]? allMeshes = null)
         {
             Vertex[] original = ReadVertices(nuMesh);
             int originalTriangles = (int)nuMesh.IndicesCount / 3;
 
             var layout = nuMesh.VertexBuffers.SelectMany(b => b.Definitions).Select(d => d.Variable);
-            List<string> notes = FitToOriginal(obj, original, layout, nuMesh.Shape != null);
+            var (carried, kept) = RemapBlendShapes(nuMesh, original, obj);
+            List<string> notes = FitToOriginal(obj, original, layout, kept > 0);
             notes.Insert(0, $"Imported {obj.Vertices.Count:N0} vertices and {obj.Triangles:N0} triangles from {fileName} (the original had {original.Length:N0} vertices and {originalTriangles:N0} triangles).");
+            if (carried > 0)
+                notes.Add($"This part has {carried} blend shape{(carried == 1 ? "" : "s")} (facial expressions): each new vertex moves like the nearest original vertex, so the expressions carry over. Check them in game; new geometry far from the old face won't move.");
 
             for (int i = 0; i < nuMesh.VertexBuffers.Length; i++)
             {
-                nuMesh.VertexBuffers[i] = VertexList.FromVertices(obj.Vertices, nuMesh.VertexBuffers[i].Definitions);
+                var old = nuMesh.VertexBuffers[i];
+                var fresh = VertexList.FromVertices(obj.Vertices, old.Definitions);
+                Array.Copy(old.InstancingDividers, fresh.InstancingDividers, fresh.InstancingDividers.Length);
 
-                // fixes a vertex explosion; a buffer that shared another mesh's (flag 0) now stands alone, 0x503 (blend shapes) is kept
-                if (nuMesh.VertexBufferFlags[i] == 0)
-                    nuMesh.VertexBufferFlags[i] = 0x502;
+                // The file stores a shared buffer whole with its first mesh, at offset 0, and later meshes point into it.
+                // When that first mesh is the one replaced, its new vertices go in front and the others move along.
+                var sharers = allMeshes?.Where(m => m != nuMesh && m.VertexBuffers.Contains(old)).ToList() ?? new();
+                bool first = allMeshes == null || Array.IndexOf(allMeshes, nuMesh) < sharers.Select(m => Array.IndexOf(allMeshes, m)).DefaultIfEmpty(int.MaxValue).Min();
+                if (sharers.Count > 0 && first && nuMesh.VertexBufferOffsets[i] == 0)
+                {
+                    int block = Lcm(old.Stride, 128); // keeps every offset a whole vertex and 128-byte aligned, as the game's are
+                    int front = (fresh.VerticesDump.Length + block - 1) / block * block;
+                    var dump = new byte[front + old.VerticesDump.Length];
+                    fresh.VerticesDump.CopyTo(dump, 0);
+                    old.VerticesDump.CopyTo(dump, front);
+                    var combined = new VertexList((uint)(dump.Length / old.Stride), (uint)old.Definitions.Length)
+                    {
+                        Definitions = old.Definitions,
+                        Stride = old.Stride,
+                        VerticesDump = dump,
+                    };
+                    Array.Copy(old.InstancingDividers, combined.InstancingDividers, combined.InstancingDividers.Length);
+
+                    foreach (var other in sharers)
+                        for (int j = 0; j < other.VertexBuffers.Length; j++)
+                            if (other.VertexBuffers[j] == old)
+                            {
+                                other.VertexBuffers[j] = combined;
+                                other.VertexBufferOffsets[j] += front;
+                            }
+                    nuMesh.VertexBuffers[i] = combined;
+                }
+                else
+                {
+                    nuMesh.VertexBuffers[i] = fresh;
+                    // fixes a vertex explosion; a buffer that shared another mesh's (flag 0) now stands alone, 0x503 (blend shapes) is kept
+                    if (nuMesh.VertexBufferFlags[i] == 0)
+                        nuMesh.VertexBufferFlags[i] = 0x502;
+                }
                 nuMesh.VertexBufferOffsets[i] = 0;
             }
 
@@ -394,14 +473,14 @@ namespace Diorama.Editor
             RenderVertexBuffer[] vertexBuffers = new RenderVertexBuffer[nuMesh.VertexBuffers.Length];
             for (int i = 0; i < vertexBuffers.Length; i++)
             {
+                // the mesh keeps its own list: other meshes may share that exact object, which is what saving relies on
                 vertexBuffers[i] = (RenderVertexBuffer)scene.GetOrAdd(RenderVertexBuffer.FromBuffer(nuMesh.VertexBuffers[i]));
-                nuMesh.VertexBuffers[i] = vertexBuffers[i].Original;
             }
 
             RenderIndicesBuffer indicesBuffer = (RenderIndicesBuffer)scene.GetOrAdd(RenderIndicesBuffer.FromBuffer(nuMesh.Indices));
             nuMesh.Indices = indicesBuffer.Indices;
 
-            RenderMesh mesh = new RenderMesh(vertexBuffers, indicesBuffer);
+            RenderMesh mesh = new RenderMesh(vertexBuffers, indicesBuffer, nuMesh.VertexBufferOffsets);
             mesh.IndicesBase = 0;
             mesh.IndicesCount = (int)nuMesh.IndicesCount;
             mesh.VerticesBase = 0;
@@ -624,7 +703,7 @@ namespace Diorama.Editor
 
                 try
                 {
-                    var partNotes = ReplaceMeshData(meshes[index.Value], data, name);
+                    var partNotes = ReplaceMeshData(meshes[index.Value], data, name, meshes);
                     replaced.Add(index.Value);
                     notes.Add($"{name}: now {data.Vertices.Count:N0} vertices and {data.Triangles:N0} triangles.");
                     notes.AddRange(partNotes.Where(n => n.StartsWith("Warning") || n.StartsWith("The OBJ has no")).Select(n => $"{name}: {n}"));

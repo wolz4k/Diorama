@@ -71,7 +71,7 @@ namespace Diorama.Editor
 
                 RenderIndicesBuffer iBuffer = convertedIBuffer[nuMesh.Indices];
 
-                RenderMesh mesh = new RenderMesh(vBuffers, iBuffer);
+                RenderMesh mesh = new RenderMesh(vBuffers, iBuffer, nuMesh.VertexBufferOffsets);
                 mesh.VerticesBase = (int)nuMesh.VerticesBase;
                 mesh.VerticesCount = (int)nuMesh.VerticesCount;
                 mesh.IndicesBase = (int)nuMesh.IndicesBase;

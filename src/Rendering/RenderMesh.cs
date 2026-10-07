@@ -43,7 +43,11 @@ namespace Diorama.Rendering
 
         private bool IsNormalized(VertexDefinitionStorageEnum type) => type == VertexDefinitionStorageEnum.vec4mini || type == VertexDefinitionStorageEnum.color4char;
 
-        public RenderMesh(RenderVertexBuffer[] vBuffers, RenderIndicesBuffer iBuffer)
+        /// <param name="byteOffsets">
+        /// Where this mesh's vertices start in each buffer, in bytes (<see cref="NuRenderMesh.VertexBufferOffsets"/>):
+        /// meshes that share a buffer, like a face's parts, sit one after another in it.
+        /// </param>
+        public RenderMesh(RenderVertexBuffer[] vBuffers, RenderIndicesBuffer iBuffer, int[]? byteOffsets = null)
         {
             VAO = GL.GenVertexArray();
 
@@ -53,8 +57,10 @@ namespace Diorama.Rendering
 
             VertexBuffers = vBuffers;
 
-            foreach (var vb in vBuffers)
+            for (int b = 0; b < vBuffers.Length; b++)
             {
+                var vb = vBuffers[b];
+                int start = byteOffsets != null && b < byteOffsets.Length ? byteOffsets[b] : 0;
                 vb.Use();
 
                 Debug.Assert(vb.HasFinalised);
@@ -70,7 +76,7 @@ namespace Diorama.Rendering
                         GetType(def.Type),
                         IsNormalized(def.Type),
                         vb.Stride,
-                        def.Offset);
+                        start + def.Offset);
 
                     GL.EnableVertexAttribArray(location);
                 }

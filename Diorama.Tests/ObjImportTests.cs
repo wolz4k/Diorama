@@ -268,6 +268,78 @@ namespace Diorama.Tests
         }
 
         [TestMethod]
+        public void BlendShapeOffsetsReencodeExactly()
+        {
+            var scene = Load(@"CHARS\SUPER_CHARACTER\FACE\FACE_ATROCITUS_DX11.GHG");
+            int shapes = 0;
+            foreach (var mesh in scene.MeshSceneBlock.Meshes)
+                for (var shape = mesh.Shape; shape != null; shape = shape.Next)
+                {
+                    if (shape.CompressionFormat != 2) continue; // 234 of the game's 155,740 shapes use the older layout
+                    var offsets = shape.DecodeOffsets((int)mesh.VerticesCount);
+                    Assert.IsNotNull(offsets);
+                    var copy = new NuBlendShape();
+                    copy.EncodeOffsets(offsets);
+                    CollectionAssert.AreEqual(shape.Buffer, copy.Buffer);
+                    CollectionAssert.AreEqual(shape.RunBatchTableV2, copy.RunBatchTableV2);
+                    shapes++;
+                }
+            Assert.IsTrue(shapes > 10, $"only {shapes} shapes");
+        }
+
+        /// <summary>
+        /// A face replaced through an OBJ keeps its expressions: every blend shape is rebuilt for the new vertices from the
+        /// nearest original vertex, and the saved file still holds them. Here the same face goes out and comes back, so each
+        /// vertex must move exactly as before.
+        /// </summary>
+        [TestMethod]
+        public void ReplacedFaceKeepsItsExpressions()
+        {
+            var scene = Load(@"CHARS\SUPER_CHARACTER\FACE\FACE_ATROCITUS_DX11.GHG");
+            var mesh = scene.MeshSceneBlock.Meshes.First(m => m.Shape != null);
+            int index = Array.IndexOf(scene.MeshSceneBlock.Meshes, mesh);
+            var before = OBJConverter.ReadVertices(mesh);
+            var beforeShapes = new List<Vector3[]>();
+            for (var s = mesh.Shape; s != null; s = s.Next)
+                beforeShapes.Add(s.DecodeOffsets(before.Length)!);
+
+            var meshes = scene.MeshSceneBlock.Meshes;
+            Assert.IsTrue(meshes.Any(m => m != mesh && m.VertexBuffers.Any(b => mesh.VertexBuffers.Contains(b))),
+                "this face's parts share vertex buffers, which the replacement must keep valid");
+            var othersBefore = meshes.Select(m => m == mesh ? null : OBJConverter.ReadVertices(m)).ToArray();
+
+            var obj = ExportAndParse(mesh);
+            var notes = OBJConverter.ReplaceMeshData(mesh, obj, "face.obj", meshes);
+            Assert.IsTrue(notes.Any(n => n.Contains("expressions carry over")), string.Join("\n", notes));
+
+            var reparsed = Reparse(scene).MeshSceneBlock.Meshes;
+            for (int m = 0; m < reparsed.Length; m++)
+            {
+                if (othersBefore[m] == null) continue;
+                var again = OBJConverter.ReadVertices(reparsed[m]);
+                Assert.AreEqual(othersBefore[m]!.Length, again.Length);
+                for (int i = 0; i < again.Length; i++)
+                    Assert.AreEqual(othersBefore[m]![i].Position, again[i].Position, $"mesh {m} vertex {i} moved");
+            }
+
+            var saved = reparsed[index];
+            var after = OBJConverter.ReadVertices(saved);
+            var nearest = new NearestVertexFinder(before);
+            int k = 0;
+            for (var s = saved.Shape; s != null; s = s.Next, k++)
+            {
+                var offsets = s.DecodeOffsets(after.Length);
+                Assert.IsNotNull(offsets, $"shape {k} no longer decodes");
+                for (int i = 0; i < after.Length; i++)
+                {
+                    int j = nearest.Find(after[i].Position);
+                    Assert.IsTrue(Vector3.Distance(offsets[i], beforeShapes[k][j]) < 1e-6f, $"shape {k} vertex {i}");
+                }
+            }
+            Assert.AreEqual(beforeShapes.Count, k, "every shape is still there");
+        }
+
+        [TestMethod]
         public void NearestVertexFinderMatchesBruteForce()
         {
             var random = new Random(1);
