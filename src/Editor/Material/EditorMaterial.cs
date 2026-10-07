@@ -332,7 +332,7 @@ namespace Diorama.Editor.Material
         [DisplayLabel("Bitangent Flip")]
         public bool BitangentFlip { get => GetBoolByte(Original.BitangentFlip); set => SetBoolByte(ref Original.BitangentFlip, value); }
 
-        [DisplayLabel("Colour", "Whether the material uses the mesh's vertex colours; most LEGO bricks get their colour from them")] // the renderer uses it as has_vertex_colors
+        [DisplayLabel("Vertex Colours", "Whether the material uses the mesh's vertex colours; most LEGO bricks get their colour from them")] // the renderer uses it as has_vertex_colors
         public bool Colour { get => GetBoolByte(Original.Colour); set => SetBoolByte(ref Original.Colour, value); }
 
         [DisplayLabel("Generate cubemap")]

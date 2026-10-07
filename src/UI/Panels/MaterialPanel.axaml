@@ -17,7 +17,7 @@
           <Run Text="{Binding Fingerprint.MaterialName}" />
         </TextBlock>
       </StackPanel>
-      <Expander Header="Colours">
+      <Expander Header="Colours" HorizontalAlignment="Stretch" ToolTip.Tip="The tints multiplied into each texture layer (Diffuse 0 Tint recolours the main texture), and the other colour values the shader reads">
         <StackPanel Spacing="5">
           <controls:PropertyEditor Property="Colour1" />
           <controls:PropertyEditor Property="Colour2" />
@@ -40,7 +40,7 @@
           <controls:PropertyEditor Property="Colour19" />
         </StackPanel>
       </Expander>
-      <Expander Header="Textures" HorizontalAlignment="Stretch">
+      <Expander Header="Textures" HorizontalAlignment="Stretch" ToolTip.Tip="Which textures the material uses, on which UV set, and how its layers blend">
         <StackPanel Spacing="5">
           <controls:PropertyEditor Property="NumAlphaLayers" />
           <controls:PropertyEditor Property="VertLayer1Albedo" />
