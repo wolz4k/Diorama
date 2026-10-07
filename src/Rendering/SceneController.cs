@@ -66,6 +66,63 @@ namespace Diorama.Rendering
         public ICommand ExportPartsObjCommand { get; }
         public ICommand ReplacePartsObjCommand { get; }
         public ICommand UndoMeshReplaceCommand { get; }
+        public ICommand SaveSceneAsCommand { get; }
+
+        /// <summary>
+        /// Writes the scene to its own path, or to <paramref name="saveAs"/> (which it then belongs to). The first time a
+        /// file that already exists is overwritten its original is kept as .bak. Saving somewhere new also copies the scene's
+        /// companions (X_DX11.NXG_TEXTURES, .GSC.RES, shaders) under the new name, so textures and the rest stay with it.
+        /// </summary>
+        private void SaveScene(EditorScene scene, string? saveAs)
+        {
+            var notes = new List<string>();
+            string oldPath = scene.OriginalScene.Path;
+            try
+            {
+                if (saveAs != null)
+                {
+                    scene.OriginalScene.Path = saveAs;
+                    notes.AddRange(CopyCompanions(oldPath, saveAs));
+                }
+                string path = scene.OriginalScene.Path;
+                if (File.Exists(path) && !File.Exists(path + ".bak"))
+                {
+                    File.Copy(path, path + ".bak");
+                    notes.Add($"The file as it was before is kept as {Path.GetFileName(path)}.bak (only the first save makes one).");
+                }
+
+                GSceneConverter.Write(scene);
+                notes.Insert(0, $"Saved {path}.");
+                if (scene.Textures.Any(t => t.Original?.Data != null && t.Original.Header?.Name is { Length: > 0 }))
+                    notes.Add("Changed textures are saved separately: Save Textures in the scene's right-click menu.");
+                ShowMessageDialog("Scene saved", notes.Select(n => "• " + n));
+            }
+            catch (Exception ex)
+            {
+                if (saveAs != null) scene.OriginalScene.Path = oldPath;
+                ShowMessageDialog("Could not save the scene", [ex.Message]);
+            }
+        }
+
+        /// <summary>Copies X_DX11.NXG_TEXTURES, X_DX11.GSC.RES and the like from beside <paramref name="from"/> to beside <paramref name="to"/>, renamed, unless they're there already.</summary>
+        private static IEnumerable<string> CopyCompanions(string from, string to)
+        {
+            string? fromDir = Path.GetDirectoryName(from), toDir = Path.GetDirectoryName(to);
+            if (string.IsNullOrEmpty(fromDir) || string.IsNullOrEmpty(toDir) || from.StartsWith("dat:") || !Directory.Exists(fromDir))
+                yield break;
+            string fromStem = Path.GetFileNameWithoutExtension(from), toStem = Path.GetFileNameWithoutExtension(to);
+            foreach (var file in Directory.EnumerateFiles(fromDir, fromStem + ".*"))
+            {
+                string rest = Path.GetFileName(file)[fromStem.Length..]; // ".NXG_TEXTURES", ".GSC.RES"...
+                if (rest.Equals(Path.GetExtension(from), StringComparison.OrdinalIgnoreCase) || rest.EndsWith(".bak", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string target = Path.Combine(toDir, toStem + rest);
+                if (File.Exists(target) || string.Equals(Path.GetFullPath(file), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+                    continue;
+                File.Copy(file, target);
+                yield return $"Copied {Path.GetFileName(file)} beside it as {Path.GetFileName(target)}.";
+            }
+        }
 
         /// <summary>Takes back the scene's last mesh replacement (single part or a parts OBJ), on the render thread.</summary>
         public void UndoMeshReplace(EditorScene scene)
@@ -123,7 +180,17 @@ namespace Diorama.Rendering
                     sender.OriginalScene.Path = outputPath;
                 }
 
-                GSceneConverter.Write(sender);
+                SaveScene(sender, null);
+            });
+
+            SaveSceneAsCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
+            {
+                if (sender == null) return;
+                string path = sender.OriginalScene.Path;
+                string extension = !string.IsNullOrEmpty(path) ? Path.GetExtension(path) : "gsc";
+                string? outputPath = await MainWindow?.OpenSaveMenu("Save GScene As", extension);
+                if (outputPath == null) return;
+                SaveScene(sender, outputPath);
             });
 
             RemoveSceneCommand = new RelayCommand<EditorScene>((EditorScene? sender) =>

@@ -29,7 +29,10 @@
               <TextBlock Text="{Binding Name}">
                 <TextBlock.ContextMenu>
                   <ContextMenu>
-                    <MenuItem Header="Save GScene" Command="{Binding $parent[TreeView].DataContext.SaveSceneCommand}" CommandParameter="{Binding}"/>
+                    <MenuItem Header="Save GScene" Command="{Binding $parent[TreeView].DataContext.SaveSceneCommand}" CommandParameter="{Binding}"
+                              ToolTip.Tip="Overwrite the file you opened (the first save keeps the original as .bak)"/>
+                    <MenuItem Header="Save GScene As..." Command="{Binding $parent[TreeView].DataContext.SaveSceneAsCommand}" CommandParameter="{Binding}"
+                              ToolTip.Tip="Save to a new file, for example in your mod folder; its textures and other companion files are copied beside it"/>
                     <MenuItem Header="Remove Scene" Command="{Binding $parent[TreeView].DataContext.RemoveSceneCommand}" CommandParameter="{Binding}"/>
                     <MenuItem Header="Export Scene" Command="{Binding $parent[TreeView].DataContext.ExportSceneCommand}" CommandParameter="{Binding}"/>
                     <MenuItem Header="Export Parts as OBJ..." Command="{Binding $parent[TreeView].DataContext.ExportPartsObjCommand}" CommandParameter="{Binding}"
