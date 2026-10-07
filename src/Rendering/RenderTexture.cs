@@ -41,6 +41,16 @@ namespace Diorama.Rendering
 
         public NuTexture Original;
 
+        /// <summary>
+        /// For a texture the scene only names (its pixels are in a shared texture scene, as in the hub levels), the
+        /// scene it was found in; the pixels shown come from there and <see cref="Original"/> stays the scene's own entry.
+        /// </summary>
+        public string? SharedFrom { get; private set; }
+
+        /// <summary>The image shown: the shared texture's for a name-only one (<see cref="SharedFrom"/>), else <see cref="Original"/>.</summary>
+        public NuTexture Pixels => sharedPixels ?? Original;
+        private NuTexture? sharedPixels;
+
         private static RenderTexture whiteTexture;
 
         /// <summary>Whether <paramref name="texture"/> is the white stand-in a material gets for a texture index it couldn't resolve (or none).</summary>
@@ -108,9 +118,15 @@ namespace Diorama.Rendering
 
         public void Reload(NuTexture texture)
         {
-            Use();
-
             Original = texture;
+            sharedPixels = null; // a replacement is the scene's own
+            SharedFrom = null;
+            Upload(texture);
+        }
+
+        private void Upload(NuTexture texture)
+        {
+            Use();
 
             int blockSize = 0;
             int uncompressedPixelSize = 0;
@@ -257,23 +273,29 @@ namespace Diorama.Rendering
             return offset;
         }
 
-        public static RenderTexture FromNuTexture(NuTexture texture)
+        /// <param name="shared">Where the pixels are, if <paramref name="texture"/> is only a name (see <see cref="SharedFrom"/>).</param>
+        public static RenderTexture FromNuTexture(NuTexture texture, (NuTexture Texture, string Scene)? shared = null)
         {
             RenderTexture renderTexture = new RenderTexture();
 
             renderTexture.Original = texture;
+            renderTexture.SharedFrom = shared?.Scene;
+            renderTexture.sharedPixels = shared?.Texture;
 
             renderTexture.GscName = texture.Header.Name;
 
-            renderTexture.Target = texture.IsCubemap ? TextureTarget.TextureCubeMap : TextureTarget.Texture2D;
+            NuTexture pixels = shared?.Texture ?? texture;
+            renderTexture.Target = pixels.IsCubemap ? TextureTarget.TextureCubeMap : TextureTarget.Texture2D;
 
-            if (texture.Data == null)
+            // no image (a 0 x 0 one would sample black): white, so the tints and vertex colours still show
+            if (pixels.Data == null || pixels.Width == 0 || pixels.Height == 0)
             {
+                renderTexture.Target = TextureTarget.Texture2D;
                 renderTexture.CreateWhiteTexture();
                 return renderTexture;
             }
 
-            renderTexture.Reload(texture);
+            renderTexture.Upload(pixels);
 
             
 

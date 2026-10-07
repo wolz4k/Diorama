@@ -37,7 +37,7 @@ public partial class EditTexturesWindow : ModalWindow
     /// <summary>Size, compression and mipmaps of the picked texture: what a replacement .DDS should match.</summary>
     private void ShowFacts(RenderTexture? texture)
     {
-        var nu = texture?.Original;
+        var nu = texture?.Pixels;
         if (nu == null || nu.Data == null || nu.Width == 0)
         {
             TextureFacts.Text = texture == null ? "" : "No image data in this slot.";
@@ -55,12 +55,14 @@ public partial class EditTexturesWindow : ModalWindow
         string text = $"{nu.Width} × {nu.Height}, {format}, {nu.MipCount} mipmap level{(nu.MipCount == 1 ? "" : "s")}{(nu.IsCubemap ? ", cubemap" : "")}";
         if (string.IsNullOrEmpty(nu.Header?.Name))
             text += ". It comes from the shared LEGO texture page (LEGOTPAGE), so replacing it here isn't saved into this scene.";
+        else if (texture!.SharedFrom != null)
+            text += $". This scene only names it: the image is stored in {texture.SharedFrom}, which other parts of the level use too. Replacing it here saves a copy into this scene's own texture file (not yet tested in game).";
         TextureFacts.Text = text;
     }
 
     private async void ExportTexture_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (DataContext is not EditTexturesViewModel vm || vm.Texture?.Original is not { ImageHeader: not null, Data: not null } nu)
+        if (DataContext is not EditTexturesViewModel vm || vm.Texture?.Pixels is not { ImageHeader: not null, Data: not null } nu)
             return;
 
         string name = Path.GetFileName((nu.Header?.Name is { Length: > 0 } n ? n : "texture").Replace('/', '\\'));

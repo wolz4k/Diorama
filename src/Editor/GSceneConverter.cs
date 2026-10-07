@@ -90,6 +90,12 @@ namespace Diorama.Editor
                 //var nxg_textures = NxgTextures.Read(Path.ChangeExtension(filePath, "nxg_textures"));
                 if (nxg_textures != null)
                 {
+                    // the other scenes this one names (a hub piece's shared texture scene), where name-only textures are
+                    string ownName = Path.GetFileName(scene.Path ?? "");
+                    var sharedScenes = (scene.ResourceHeader?.FileTree?.GetIndexedFiles().Values ?? Enumerable.Empty<string>())
+                        .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(p).Equals(ownName, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
                     for (int i = 0; i < nxg_textures.TextureSet.Textures.Length; i++)
                     {
                         var texture = nxg_textures.TextureSet.Textures[i];
@@ -101,7 +107,8 @@ namespace Diorama.Editor
                         //    NxgTextures.LoadExternalTexture(texture);
                         //}
 
-                        textures.Add(RenderTexture.FromNuTexture(texture));
+                        var shared = sharedScenes.Count > 0 && SharedTextures.IsNameOnly(texture) ? SharedTextures.Find(sharedScenes, texture.Header.Name) : null;
+                        textures.Add(RenderTexture.FromNuTexture(texture, shared));
                     }
                     editorScene.OriginalTextures = nxg_textures;
                 }
