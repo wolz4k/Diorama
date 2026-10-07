@@ -94,6 +94,13 @@ namespace Diorama.Editor
             return !special.IsBreakup || RenderOptions.ShowBreakup || !HasNonBreakupParts;
         }
 
+        /// <summary>
+        /// Whether the scene's texture name list (Metadata) had one name per texture when loaded, and how many textures
+        /// there were; a list that didn't match is kept as read when saving (see GSceneConverter.ConvertMetadata).
+        /// </summary>
+        public bool MetaStringsMatchedTextures { get; set; } = true;
+        public int LoadedTextureCount { get; set; }
+
         /// <summary>The geometry before each mesh replacement, newest last, for Undo replace.</summary>
         public Stack<MeshSnapshot> MeshUndo { get; } = new();
 

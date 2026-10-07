@@ -543,10 +543,13 @@ namespace Diorama.Editor
 
             if (scene.Metadata != null) // A bit of a sanity check
             {
+                editorScene.LoadedTextureCount = textures.Count;
                 if (scene.Metadata.MetaStrings.Count != textures.Count)
                 {
-                    problems.Add("Caution: Number of textures referenced in scene does not match number of textures in nxg_textures file - This will likely crash in-game!");
-                    problems.Add("    Ensure you save both the scene and the textures file so they stay synchronised!");
+                    editorScene.MetaStringsMatchedTextures = false;
+                    problems.Add($"Note: the scene lists {scene.Metadata.MetaStrings.Count} texture names but its .NXG_TEXTURES file has {textures.Count} textures.");
+                    problems.Add("    A few of the game's own files do this (extra dummy lightmap names), and saving keeps the list as it is.");
+                    problems.Add("    If this is your mod's file, make sure its textures were saved with it (Save Textures).");
                 }
                 else
                 { 
@@ -813,14 +816,18 @@ namespace Diorama.Editor
 
         public static void ConvertMaterials(EditorScene scene)
         {
+            // A texture still showing the white stand-in was never resolved (no texture, or an index past the texture
+            // file, as in scenes whose name list starts with dummy lightmaps), so it keeps the index it was read with.
+            int IndexOf(RenderTexture texture, int read) => RenderTexture.IsWhitePlaceholder(texture) ? read : scene.Textures.IndexOf(texture);
+
             foreach (var mat in scene.Materials)
             {
-                mat.Original.Diffuse0Index = scene.Textures.IndexOf(mat.Diffuse0);
-                mat.Original.Diffuse1Index = scene.Textures.IndexOf(mat.Diffuse1);
-                mat.Original.Normal0Index = scene.Textures.IndexOf(mat.Normal0);
-                mat.Original.Normal1Index = scene.Textures.IndexOf(mat.Normal1);
+                mat.Original.Diffuse0Index = IndexOf(mat.Diffuse0, mat.Original.Diffuse0Index);
+                mat.Original.Diffuse1Index = IndexOf(mat.Diffuse1, mat.Original.Diffuse1Index);
+                mat.Original.Normal0Index = IndexOf(mat.Normal0, mat.Original.Normal0Index);
+                mat.Original.Normal1Index = IndexOf(mat.Normal1, mat.Original.Normal1Index);
 
-                mat.Original.Specular0Index = scene.Textures.IndexOf(mat.Specular0);
+                mat.Original.Specular0Index = IndexOf(mat.Specular0, mat.Original.Specular0Index);
 
                 mat.Original.OldTid = mat.Original.Diffuse0Index;
 
@@ -891,6 +898,11 @@ namespace Diorama.Editor
         public static void ConvertMetadata(EditorScene scene)
         {
             GScene_4F originalScene = (GScene_4F)scene.OriginalScene;
+
+            // A few scenes list more names than their texture file has (EFFECT_GRID_GLOW starts with three dummy lightmap
+            // names), so the list isn't one name per texture: keep it as the file had it unless textures were added or removed.
+            if (!scene.MetaStringsMatchedTextures && scene.Textures.Count == scene.LoadedTextureCount)
+                return;
 
             List<NuDynamicString> textureStrings = new List<NuDynamicString>();
             foreach (var tex in scene.Textures)

@@ -42,6 +42,9 @@ namespace Diorama.Rendering
         public NuTexture Original;
 
         private static RenderTexture whiteTexture;
+
+        /// <summary>Whether <paramref name="texture"/> is the white stand-in a material gets for a texture index it couldn't resolve (or none).</summary>
+        public static bool IsWhitePlaceholder(RenderTexture? texture) => texture != null && ReferenceEquals(texture, whiteTexture);
         public static RenderTexture GetWhiteTexture()
         {
             if (whiteTexture == null)
