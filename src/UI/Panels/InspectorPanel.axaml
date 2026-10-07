@@ -27,6 +27,8 @@
         <!-- what to do when nothing is picked yet -->
         <StackPanel Margin="12" Spacing="8" Opacity="0.7"
                     IsVisible="{Binding Controller.SelectedHierarchyObject, Converter={x:Static ObjectConverters.IsNull}}">
+          <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" IsVisible="{Binding Controller.NoScenes}"
+                     Text="Open a .GSC (level or prop) or .GHG (character) with File > Open, or drag one or more onto the window. Characters are in the game's CHARS folder, levels in LEVELS." />
           <TextBlock TextWrapping="Wrap" Text="Click a part in the view, or an item in the list above, to see and edit it here." />
           <TextBlock TextWrapping="Wrap" Text="Hold the right mouse button in the view to look around. While holding it, W A S D move, Space and Ctrl go up and down, and Shift goes faster." />
           <TextBlock TextWrapping="Wrap" Text="F moves the camera to the picked part." />
