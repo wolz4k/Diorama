@@ -151,7 +151,8 @@ namespace Diorama.Core.Filetypes.GSC.Components
             {
                 file.WriteInt(Buffer.Length, true);
                 file.WriteArray(Buffer);
-                ctx.AddReference(Buffer);
+                if (Buffer.Length != 0) // as when reading: an empty buffer takes no reference number
+                    ctx.AddReference(Buffer);
             }
             else
             {

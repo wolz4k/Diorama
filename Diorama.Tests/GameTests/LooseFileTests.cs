@@ -78,6 +78,9 @@ namespace Diorama.Tests.GameTests
 
             Console.WriteLine("--- FINAL RESULT ---");
             Console.WriteLine($"parsed {parsed}/{total}, identical after write {identical}/{total}");
+
+            // Every scene of DC Super-Villains comes back byte for byte; anything less is a regression.
+            Assert.AreEqual(total, identical, "some scenes no longer round-trip byte for byte (listed above)");
         }
     }
 }

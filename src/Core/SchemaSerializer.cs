@@ -245,7 +245,7 @@ namespace Diorama.Core
         {
             if (Writing)
             {
-                if (VectorMarkers.ShouldWrite)
+                if (VectorMarkers.ShouldWriteFor(arr))
                 {
                     File.WriteString("ROTV");
                 }
@@ -265,9 +265,9 @@ namespace Diorama.Core
             {
                 string magic = File.ReadString(4);
                 Debug.Assert(magic == "ROTV" || magic == "\0\0\0");
-                VectorMarkers.Saw(magic);
                 int count = File.ReadInt(true);
                 arr = new List<T>();
+                VectorMarkers.Saw(magic, arr);
                 for (int i = 0; i < count; i++)
                 {
                     var item = new T();
@@ -326,7 +326,7 @@ namespace Diorama.Core
         {
             if (Writing)
             {
-                if (VectorMarkers.ShouldWrite)
+                if (VectorMarkers.ShouldWriteFor(arr))
                 {
                     File.WriteString("ROTV");
                 }
@@ -345,9 +345,9 @@ namespace Diorama.Core
             {
                 string magic = File.ReadString(4);
                 Debug.Assert(magic == "ROTV" || magic == "\0\0\0");
-                VectorMarkers.Saw(magic);
                 int count = File.ReadInt(true);
                 arr = new List<Vector3>();
+                VectorMarkers.Saw(magic, arr);
                 for (int i = 0; i < count; i++)
                 {
                     arr.Add(File.ReadVector3(true));

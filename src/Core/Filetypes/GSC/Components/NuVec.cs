@@ -13,9 +13,7 @@ namespace Diorama.Core.Filetypes.GSC.Components
 
         public void Deserialize(RawFile file, uint parentVersion)
         {
-            file.ReadFloat(true);
-            file.ReadFloat(true);
-            file.ReadFloat(true);
+            Value = file.ReadVector3(true);
         }
 
         public void Handle(SchemaSerializer schema, uint parentVersion)
@@ -25,7 +23,7 @@ namespace Diorama.Core.Filetypes.GSC.Components
 
         public void Serialize(RawFile file, uint parentVersion)
         {
-            throw new NotImplementedException();
+            file.WriteVector3(Value, true);
         }
     }
 }

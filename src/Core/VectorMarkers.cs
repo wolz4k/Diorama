@@ -9,10 +9,19 @@ namespace Diorama.Core
         [ThreadStatic] private static bool? seen;
         [ThreadStatic] private static bool? writing;
 
-        public static void Saw(string marker)
+        // Each array read keeps its own marker: a few files mix them (BUILDERFUSEBOX_CUBEMAPBG has one ROTV among zeros).
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, System.Runtime.CompilerServices.StrongBox<bool>> perArray = new();
+
+        /// <summary>Notes the marker an array was read with.</summary>
+        public static void Saw(string marker, object array)
         {
-            seen ??= marker == "ROTV";
+            bool rotv = marker == "ROTV";
+            seen ??= rotv;
+            perArray.AddOrUpdate(array, new System.Runtime.CompilerServices.StrongBox<bool>(rotv));
         }
+
+        /// <summary>The marker style to write for <paramref name="array"/>: what it was read with, else the scene's.</summary>
+        public static bool ShouldWriteFor(object array) => perArray.TryGetValue(array, out var rotv) ? rotv.Value : ShouldWrite;
 
         /// <summary>Starts noting markers for a new file.</summary>
         public static void Reset() => seen = null;

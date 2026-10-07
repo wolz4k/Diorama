@@ -12,7 +12,7 @@ The tool is still under development, but it already has some features implemente
 - View and edit (but not save, yet!) the transformations of objects in the scene.
 - Swap the geometry in the scene with other geometry from a .OBJ file (see "Editing a part in Blender" below).
 - Change the primary material colour
-- Saving writes a scene back exactly as the game stored it, apart from your edits (3,899 of DC Super-Villains' 3,926 scenes come back byte for byte), so a mod only differs from the original where you changed something.
+- Saving writes a scene back exactly as the game stored it, apart from your edits (all 3,926 of DC Super-Villains' scenes come back byte for byte, faces with expressions included), so a mod only differs from the original where you changed something.
 - Toggle on/off lightmaps
 
 ## Editing a part in Blender
