@@ -360,13 +360,13 @@ namespace Diorama.Editor
         /// original vertex. Returns how many shapes were carried over and how many are in a layout that can't be rebuilt
         /// (left as they are). Must run before the mesh's vertex count changes.
         /// </summary>
-        static (int Carried, int Kept) RemapBlendShapes(NuRenderMesh nuMesh, Vertex[] original, ObjMeshData obj)
+        public static (int Carried, int Kept) RemapBlendShapes(NuRenderMesh nuMesh, Vertex[] original, IReadOnlyList<Vertex> vertices)
         {
             if (nuMesh.Shape == null || original.Length == 0)
                 return (0, nuMesh.Shape != null ? 1 : 0);
 
             var nearest = new NearestVertexFinder(original);
-            int[] source = obj.Vertices.Select(v => nearest.Find(v.Position)).ToArray();
+            int[] source = vertices.Select(v => nearest.Find(v.Position)).ToArray();
 
             int carried = 0, kept = 0;
             for (var shape = nuMesh.Shape; shape != null; shape = shape.Next)
@@ -398,16 +398,29 @@ namespace Diorama.Editor
             int originalTriangles = (int)nuMesh.IndicesCount / 3;
 
             var layout = nuMesh.VertexBuffers.SelectMany(b => b.Definitions).Select(d => d.Variable);
-            var (carried, kept) = RemapBlendShapes(nuMesh, original, obj);
+            var (carried, kept) = RemapBlendShapes(nuMesh, original, obj.Vertices);
             List<string> notes = FitToOriginal(obj, original, layout, kept > 0);
             notes.Insert(0, $"Imported {obj.Vertices.Count:N0} vertices and {obj.Triangles:N0} triangles from {fileName} (the original had {original.Length:N0} vertices and {originalTriangles:N0} triangles).");
             if (carried > 0)
                 notes.Add($"This part has {carried} blend shape{(carried == 1 ? "" : "s")} (facial expressions): each new vertex moves like the nearest original vertex, so the expressions carry over. Check them in game; new geometry far from the old face won't move.");
 
+            SetMeshData(nuMesh, obj.Vertices, obj.Indices.Select(i => (ushort)i).ToArray(), allMeshes);
+
+            return notes;
+        }
+
+        /// <summary>
+        /// Gives a game mesh new vertices and triangles, keeping its vertex layout (so the material still lines up), its
+        /// buffer flags, and any buffer it shares with later meshes valid; refreshes its culling box.
+        /// </summary>
+        /// <param name="allMeshes">Every mesh of the scene, to keep buffers this mesh shares with others valid; without it the
+        /// mesh always gets buffers of its own.</param>
+        public static void SetMeshData(NuRenderMesh nuMesh, IReadOnlyList<Vertex> vertices, ushort[] indices, NuRenderMesh[]? allMeshes)
+        {
             for (int i = 0; i < nuMesh.VertexBuffers.Length; i++)
             {
                 var old = nuMesh.VertexBuffers[i];
-                var fresh = VertexList.FromVertices(obj.Vertices, old.Definitions);
+                var fresh = VertexList.FromVertices(vertices as List<Vertex> ?? vertices.ToList(), old.Definitions);
                 Array.Copy(old.InstancingDividers, fresh.InstancingDividers, fresh.InstancingDividers.Length);
 
                 // The file stores a shared buffer whole with its first mesh, at offset 0, and later meshes point into it.
@@ -448,27 +461,26 @@ namespace Diorama.Editor
                 nuMesh.VertexBufferOffsets[i] = 0;
             }
 
-            nuMesh.Indices = obj.Indices.Select(i => (ushort)i).ToArray();
+            nuMesh.Indices = indices;
             nuMesh.IndicesFlags = 0x102;
             nuMesh.IndicesBase = 0;
             nuMesh.IndicesCount = (uint)nuMesh.Indices.Length;
             nuMesh.VerticesBase = 0;
-            nuMesh.VerticesCount = (uint)obj.Vertices.Count;
+            nuMesh.VerticesCount = (uint)vertices.Count;
 
             // the game culls by this box; skinned parts leave it zeroed, so only refresh one that was filled in
             if (nuMesh.CentreExtents[0] != Vector4.UnitW || nuMesh.CentreExtents[1] != Vector4.Zero)
             {
-                var (min, max) = Bounds(obj.Vertices.Select(v => v.Position));
+                var (min, max) = Bounds(vertices.Select(v => v.Position));
                 nuMesh.CentreExtents[0] = new Vector4((min + max) / 2, 1);
                 nuMesh.CentreExtents[1] = new Vector4((max - min) / 2, 0);
             }
 
-            return notes;
         }
 
         public const string SaveReminder = "The change is only in memory until you right-click the scene in the hierarchy and choose Save GScene, which overwrites the file you opened.";
 
-        static RenderMesh BuildRenderMesh(NuRenderMesh nuMesh, EditorScene scene)
+        public static RenderMesh BuildRenderMesh(NuRenderMesh nuMesh, EditorScene scene)
         {
             RenderVertexBuffer[] vertexBuffers = new RenderVertexBuffer[nuMesh.VertexBuffers.Length];
             for (int i = 0; i < vertexBuffers.Length; i++)
