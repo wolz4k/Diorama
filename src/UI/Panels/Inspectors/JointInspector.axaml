@@ -23,6 +23,8 @@
       <ControlTemplate>
         <StackPanel Margin="5" Spacing="5">
           <controls:PropertyEditor Property="Name" />
+          <TextBlock TextWrapping="Wrap" Opacity="0.7" Margin="2,0,2,4"
+                     Text="A joint of the skeleton: skinned parts bend with it, and points of interest can hang from it. In game, animations move it; changing its transform here hasn't been tried in game, so test any change." />
           <controls:PropertyEditor Property="WorldTransform" />
         </StackPanel>
       </ControlTemplate>
