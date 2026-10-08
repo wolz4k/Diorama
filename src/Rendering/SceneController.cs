@@ -66,6 +66,7 @@ namespace Diorama.Rendering
         public ICommand ExportPartsObjCommand { get; }
         public ICommand ReplacePartsObjCommand { get; }
         public ICommand UndoMeshReplaceCommand { get; }
+        public ICommand TransplantPartCommand { get; }
         public ICommand SaveSceneAsCommand { get; }
 
         /// <summary>
@@ -354,6 +355,44 @@ namespace Diorama.Rendering
                     {
                         snapshot.Restore();
                         ShowMessageDialog("Could not import the parts", [ex.Message]);
+                    }
+                });
+            });
+
+            TransplantPartCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
+            {
+                if (sender == null) return;
+                if (sender.OriginalScene is not GScene_4F target || target.CharacterData.Count == 0)
+                {
+                    ShowMessageDialog("Bring in a part from another game", ["Open one of this game's character parts first (for wings, CHARS\\SUPER_CHARACTER\\WINGS_FEATHER\\WINGS_FEATHER_DX11.GHG), then pick the other game's part of the same kind."]);
+                    return;
+                }
+
+                string? inputPath = await MainWindow?.OpenFileMenu("Part from another game (.GHG)", "ghg");
+                if (inputPath == null) return;
+
+                RenderService.Current.Enqueue(() =>
+                {
+                    var snapshot = MeshSnapshot.Take(sender, $"Bring in {Path.GetFileName(inputPath)}");
+                    try
+                    {
+                        if (GScene.Parse(inputPath) is not GScene_4F source)
+                            throw new InvalidDataException("That file isn't a scene Diorama can read.");
+                        var notes = PartTransplant.Transplant(source, target, out var changed);
+                        var geometry = sender.AllGeometry().ToList();
+                        foreach (var nuMesh in changed)
+                        {
+                            var mesh = OBJConverter.BuildRenderMesh(nuMesh, sender);
+                            foreach (var geo in geometry.Where(g => g.Mesh?.OriginalMesh == nuMesh))
+                                geo.Mesh = mesh;
+                        }
+                        sender.MeshUndo.Push(snapshot);
+                        ShowMessageDialog("Part brought in", notes.Select(n => "• " + n));
+                    }
+                    catch (Exception ex)
+                    {
+                        snapshot.Restore();
+                        ShowMessageDialog("Could not bring in the part", [ex.Message]);
                     }
                 });
             });

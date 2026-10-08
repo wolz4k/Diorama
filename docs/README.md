@@ -56,6 +56,18 @@ After editing, **Replace Parts from OBJ...** puts each object back on its part. 
 
 A game mesh can hold at most 65,536 vertices (after splitting along UV seams and hard edges). Faces keep their expressions when replaced: each blend shape (smile, frown, blink…) is rebuilt for the new vertices, each moving like the nearest vertex of the old face, so keep new geometry close to the face it replaces.
 
+### A part from another LEGO game
+
+Models from other games can't simply be copied: LEGO Marvel's Avengers' models are an older version whose materials point at that game's own compiled shaders, so LEGO DC Super-Villains loads them but draws nothing. **Bring In Part from Another Game...** moves the other game's geometry into one of this game's models instead:
+
+1. Open this game's part of the same kind, for example `CHARS\SUPER_CHARACTER\WINGS_FEATHER\WINGS_FEATHER_DX11.GHG` for wings.
+2. Right-click the scene, choose **Bring In Part from Another Game...** and pick the other game's part (Avengers' `WINGS_FALCON_AOU_DX11.GHG`).
+3. Each LOD gets the other part's shape, UVs, vertex colours and bone weights (joints are matched by name, so pick a part with the same skeleton); this model keeps its materials and shaders, and its own parts and breakup pieces are emptied. *Undo Mesh Replacement* takes it back.
+4. **Save GScene As...** under the name the part's `.CD` loads (in your mod), never over the game's file.
+5. In the part's `.CD` (Flux), set *Default Layers* and the other *… Layers* to the mask the report names (2 for the feather wings), and give the character's attachment a *Tint Colour*: the part shows its vertex colours times that tint. Its animations come from the part's animation set, which can be this game's one for the same skeleton (`Basic_Wings_Feather`).
+
+Tried in game: Falcon's wings brought into the feather wings show on Hawkman and move as he flies. Textures from the other game don't come along yet.
+
 ## Supported Games
 
 - LEGO Batman 3

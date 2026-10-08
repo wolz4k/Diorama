@@ -697,7 +697,7 @@ namespace Diorama.Editor
         }
 
         // Breakup layers are named TT6_BreakUp, TT6_Breakups, TT1_BlowUps, TT6_RoofBreakoff...
-        private static bool IsBreakupLayer(string layerName)
+        internal static bool IsBreakupLayer(string layerName)
         {
             return layerName.Contains("break", StringComparison.OrdinalIgnoreCase)
                 || layerName.Contains("blowup", StringComparison.OrdinalIgnoreCase);
