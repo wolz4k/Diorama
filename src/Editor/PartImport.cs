@@ -32,7 +32,7 @@ namespace Diorama.Editor
         /// </summary>
         record Donor(string Path, string Material, string? Variant, byte[] Diffuse, byte[]? Normal);
 
-        static readonly Dictionary<(string Root, string Layout, uint Version, string Folder), Donor?> donors = new();
+        static readonly Dictionary<(string Root, string Layout, uint Version, string Folder, bool Clear), Donor?> donors = new();
 
         const int Cell = 512;      // each colour texture gets a cell this size in the packed texture (or its own size, if bigger)
         const int MaxCell = 1024;  // the biggest texture packed
@@ -197,12 +197,36 @@ namespace Diorama.Editor
             }
             if (clamped > 0) notes.Add($"{clamped:N0} vertices had UVs further out than their texture's repeats; they're held at its edge, so check those spots.");
 
+            // See-through pieces (blending materials) need a blending material of this game's, on meshes of their own; it's
+            // added after the model's materials. Without one for this layout they're drawn solid.
+            var block = target.MaterialBlock;
+            var drawnSource = Enumerable.Range(0, source.CharacterData.Count).SelectMany(lod => PartTransplant.MeshesOf(source, lod)).Where(m => !m.Breakup).Select(m => m.Material).ToHashSet();
+            var seeThrough = drawnSource.Where(i => i >= 0 && i < source.MaterialBlock.Materials.Length && source.MaterialBlock.Materials[i]?.blendMode is > 0).ToHashSet();
+            Donor? clearDonor = null;
+            var donorOf = new Dictionary<NuMaterialData_E0, Donor>();
+            int clearSlot = -1;
+            if (seeThrough.Count > 0)
+            {
+                clearDonor = FindDonor(gameRoot, layout, main.Version, Path.GetDirectoryName(Path.GetFullPath(basePath))!, clear: true);
+                if (clearDonor == null) notes.Add("Its see-through pieces are drawn solid: none of this game's character parts has a see-through material for vertices laid out like this part's.");
+                else
+                {
+                    var donorMaterials = ((GScene_4F)GScene.Parse(clearDonor.Path)).MaterialBlock.Materials.OfType<NuMaterialData_E0>().ToList();
+                    var clearMaterial = donorMaterials.First(m => m.MaterialName == clearDonor.Material);
+                    clearMaterial.Parent = block;
+                    clearMaterial.MaterialName = $"{Stem(outPath)}:SeeThrough";
+                    clearMaterial.ChildMaterial = null;
+                    clearSlot = block.Materials.Length;
+                    block.Materials = block.Materials.Append(clearMaterial).ToArray();
+                    donorOf[clearMaterial] = clearDonor;
+                }
+            }
+
             // the shape and weights
-            var moved = PartTransplant.Transplant(source, target, out _);
+            var moved = PartTransplant.Transplant(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot);
             notes.AddRange(moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Warning") || n.Contains("weren't weighted")));
 
             // the material, on the slots the part is drawn with (its variant on the variant slots)
-            var block = target.MaterialBlock;
             var children = block.Materials.Select(m => (m as NuMaterialData_E0)?.ChildMaterial?.MaterialName).ToList();
             var replaced = new List<NuMaterialData_E0>();
             for (int i = 0; i < block.Materials.Length; i++)
@@ -218,9 +242,11 @@ namespace Diorama.Editor
                 copy.MaterialName = old.MaterialName;
                 block.Materials[i] = copy;
                 replaced.Add(copy);
+                donorOf[copy] = donor;
             }
+            replaced.AddRange(donorOf.Keys.Where(m => !replaced.Contains(m)));
             for (int i = 0; i < block.Materials.Length; i++)
-                if (block.Materials[i] is NuMaterialData_E0 m)
+                if (block.Materials[i] is NuMaterialData_E0 m && i < children.Count)
                     m.ChildMaterial = children[i] == null ? null : block.Materials.FirstOrDefault(x => x?.MaterialName == children[i]);
             bool keepOwn = block.Materials.Any(m => m != null && !replaced.Contains(m));
 
@@ -237,7 +263,8 @@ namespace Diorama.Editor
             var normal = new NuTexture { Header = Header(headers.ElementAtOrDefault(1) ?? headers.ElementAtOrDefault(0), nrmName) };
             PackedTexture(diffuse, sourceTex, cells, cells.Select(c => (tiles[c].U, tiles[c].V)).ToList(), fourCC, template, page, bits, perSide, cell, blockBytes);
             FlatNormal(normal, template);
-            var made = donor.Normal != null ? new[] { diffuse, normal } : new[] { diffuse };
+            bool withNormal = donorOf.Values.Any(d => d.Normal != null);
+            var made = withNormal ? new[] { diffuse, normal } : new[] { diffuse };
             var own = keepOwn ? nxg.TextureSet.Textures : Array.Empty<NuTexture>();
             byte[] textureBytes = nxg.ToBytes(own.Concat(made));
 
@@ -251,12 +278,13 @@ namespace Diorama.Editor
             foreach (var t in made) names.Add(new NuDynamicString(t.Header.Name));
             foreach (var m in replaced)
             {
-                m.Diffuse0Index = own.Length; m.Normal0Index = donor.Normal != null ? own.Length + 1 : -1;
+                var from = donorOf[m];
+                m.Diffuse0Index = own.Length; m.Normal0Index = from.Normal != null ? own.Length + 1 : -1;
                 foreach (var list in new[] { m.PixelFixupData, m.VertexFixupData, m.TempVertexFixupData })
                     foreach (var h in list ?? new())
                     {
                         if (h.Checksum.All(x => x == 0)) continue;
-                        var to = h.Checksum.SequenceEqual(donor.Diffuse) ? diffuse.Header : donor.Normal != null && h.Checksum.SequenceEqual(donor.Normal) ? normal.Header : null;
+                        var to = h.Checksum.SequenceEqual(from.Diffuse) ? diffuse.Header : from.Normal != null && h.Checksum.SequenceEqual(from.Normal) ? normal.Header : null;
                         if (to == null) continue;
                         h.Name = to.Name;
                         h.Checksum = (byte[])to.Checksum.Clone();
@@ -267,9 +295,10 @@ namespace Diorama.Editor
             NxgShaders shaders;
             using (var f = ReadOnlyFile.Open(Path.ChangeExtension(basePath, ".PC_SHADERS"))) shaders = NxgShaders.Read(f);
             var have = shaders.ShaderCache.Select(x => x.ConfigHash).ToHashSet();
-            using (var f = ReadOnlyFile.Open(Path.ChangeExtension(donorPath, ".PC_SHADERS")))
-                foreach (var x in NxgShaders.Read(f).ShaderCache)
-                    if (have.Add(x.ConfigHash)) shaders.ShaderCache.Add(x);
+            foreach (var path in donorOf.Values.Select(d => d.Path).Distinct())
+                using (var f = ReadOnlyFile.Open(Path.ChangeExtension(path, ".PC_SHADERS")))
+                    foreach (var x in NxgShaders.Read(f).ShaderCache)
+                        if (have.Add(x.ConfigHash)) shaders.ShaderCache.Add(x);
 
             // the files it names: its own, under the new name and folder
             string? baseDir = RelativeDir(basePath), outDir = RelativeDir(outPath);
@@ -323,10 +352,10 @@ namespace Diorama.Editor
         /// normal map, both stored in its own texture file. Parts in <paramref name="folder"/> (the base part's: capes for
         /// a cape) are looked at first and faces last, as their materials do face things. Remembered per game, layout and folder.
         /// </summary>
-        static Donor? FindDonor(string gameRoot, string layout, uint version, string folder)
+        static Donor? FindDonor(string gameRoot, string layout, uint version, string folder, bool clear = false)
         {
             lock (donors)
-                if (donors.TryGetValue((gameRoot, layout, version, folder), out var known)) return known;
+                if (donors.TryGetValue((gameRoot, layout, version, folder, clear), out var known)) return known;
             Donor? found = null, withoutNormal = null;
             string first = Path.Combine(gameRoot, DonorScene);
             static bool IsFace(string f) => f.Contains(@"\FACE", StringComparison.OrdinalIgnoreCase) || f.Contains(@"\SUPER_FACE", StringComparison.OrdinalIgnoreCase);
@@ -343,6 +372,7 @@ namespace Diorama.Editor
                 {
                     // a material is read by its block's version, so one stored in another version can't move into this block
                     if (m.MaterialName.Contains(":VARIANT") || m.Diffuse0Index < 0 || m.Version != version || Layout(m.VertexLayout) != layout) continue;
+                    if ((m.blendMode != 0) != clear) continue; // solid for the part, blending for its see-through pieces
                     try { textures ??= NxgTextures.Read(Path.ChangeExtension(file, ".NXG_TEXTURES"))?.TextureSet?.Textures; } catch { textures = null; }
                     if (textures == null) break;
                     var diffuse = m.Diffuse0Index < textures.Length ? textures[m.Diffuse0Index] : null;
@@ -360,7 +390,7 @@ namespace Diorama.Editor
                 }
                 if (found != null) break;
             }
-            lock (donors) return donors[(gameRoot, layout, version, folder)] = found ?? withoutNormal;
+            lock (donors) return donors[(gameRoot, layout, version, folder, clear)] = found ?? withoutNormal;
         }
 
         static GScene_4F Load(string path)

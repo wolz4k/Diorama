@@ -180,6 +180,11 @@ namespace Diorama.Tests
             foreach (var n in notes) Console.WriteLine(n);
             StringAssert.Contains(notes[0], "none of its own");
             Assert.IsTrue(notes.Any(n => n.Contains("weren't weighted")));
+            // its see-through pieces: a mesh of their own, drawn with a blending material added to the model (tried in game)
+            Assert.IsTrue(notes.Any(n => n.Contains("see-through triangles in 1 mesh")));
+            var built = Load(output);
+            var clear = built.MaterialBlock.Materials.Last();
+            Assert.IsTrue(clear.MaterialName.EndsWith(":SeeThrough") && clear.blendMode != 0);
             foreach (var (mesh, _, breakup) in PartTransplant.MeshesOf(Load(output), 0))
                 if (!breakup)
                     Assert.IsTrue(OBJConverter.ReadVertices(mesh).All(v => v.BlendWeights.X + v.BlendWeights.Y + v.BlendWeights.Z + v.BlendWeights.W > 0.5f), "every vertex weighted");

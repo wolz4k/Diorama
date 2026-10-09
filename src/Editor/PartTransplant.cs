@@ -68,11 +68,13 @@ namespace Diorama.Editor
         /// Replaces <paramref name="target"/>'s character geometry with <paramref name="source"/>'s, LOD by LOD (a LOD the
         /// source lacks takes its last one). Each target LOD's first mesh gets all of the source LOD's meshes; its other
         /// meshes and the breakup parts are emptied, so nothing of the old part shows. Returns notes for the modder and
-        /// the meshes changed (to redraw).
+        /// the meshes changed (to redraw). The source's meshes drawn with a material in <paramref name="separate"/> (see-through
+        /// ones) go into meshes of their own, added to the model and drawn with <paramref name="separateMaterial"/>.
         /// </summary>
-        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed)
+        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1)
         {
-            changed = new();
+            var changedMeshes = new List<NuRenderMesh>();
+            changed = changedMeshes;
             if (source.CharacterData.Count == 0 || target.CharacterData.Count == 0)
                 throw new InvalidDataException("Both models need to be character parts (with joints and LODs), like wings, capes or hats.");
 
@@ -91,7 +93,9 @@ namespace Diorama.Editor
 
             for (int lod = 0; lod < target.CharacterData.Count; lod++)
             {
-                var from = MeshesOf(source, Math.Min(lod, source.CharacterData.Count - 1)).Where(m => !m.Breakup).Select(m => m.Mesh).Distinct().ToList();
+                var fromDrawn = MeshesOf(source, Math.Min(lod, source.CharacterData.Count - 1)).Where(m => !m.Breakup).ToList();
+                var from = fromDrawn.Select(m => m.Mesh).Distinct().ToList();
+                var apart = fromDrawn.Where(m => separate != null && separate.Contains(m.Material)).Select(m => m.Mesh).ToHashSet();
                 // this model's own meshes take the new geometry; its breakup pieces (and own meshes left over) are emptied
                 var drawn = MeshesOf(target, lod);
                 var own = drawn.Where(m => !m.Breakup).Select(m => m.Mesh).Distinct().Where(m => !done.Contains(m)).ToList();
@@ -102,9 +106,11 @@ namespace Diorama.Editor
                 var vertices = new List<Vertex>();
                 var joints = new List<int[]>();
                 var triangles = new List<int>();
+                var clear = new List<int>();
                 foreach (var mesh in from)
                 {
                     int start = vertices.Count;
+                    var into = apart.Contains(mesh) ? clear : triangles;
                     foreach (var v in OBJConverter.ReadVertices(mesh))
                     {
                         int Joint(ushort i)
@@ -117,7 +123,7 @@ namespace Diorama.Editor
                         joints.Add(new[] { Joint(v.BlendIndices.X), Joint(v.BlendIndices.Y), Joint(v.BlendIndices.Z), Joint(v.BlendIndices.W) });
                         vertices.Add(v);
                     }
-                    triangles.AddRange(OBJConverter.ReadIndices(mesh).Select(i => i + start));
+                    into.AddRange(OBJConverter.ReadIndices(mesh).Select(i => i + start));
                 }
                 float[] Weights(Vertex v) => new[] { v.BlendWeights.X, v.BlendWeights.Y, v.BlendWeights.Z, v.BlendWeights.W };
 
@@ -143,24 +149,26 @@ namespace Diorama.Editor
                 // grouped into meshes that each need no more joints than that: each goes, in order of the joints it uses (so
                 // neighbours stay together), to the group it adds fewest joints to, a new group only when none has room.
                 int room = own.Max(m => m.SkinMtxMap?.Count ?? 0);
-                var groups = new List<(List<int> Triangles, List<int> Joints)>();
-                var order = Enumerable.Range(0, triangles.Count / 3).Select(t => (t, Need: triangles.Skip(t * 3).Take(3).SelectMany(Uses).Distinct().OrderBy(j => j).ToList()))
-                    .OrderBy(x => x.Need[0]).ThenBy(x => x.Need.Count > 1 ? x.Need[1] : -1).ToList();
-                foreach (var (t, need) in order)
+                List<(List<int> Triangles, List<int> Joints)> Group(List<int> tris, int most)
                 {
-                    if (room > 0 && need.Count > room) throw new InvalidDataException($"A triangle of LOD {lod} is weighted to {need.Count} joints; a mesh holds {room}.");
-                    var fits = groups.Where(g => room == 0 || g.Joints.Union(need).Count() <= room).OrderBy(g => need.Count(j => !g.Joints.Contains(j))).ToList();
-                    var group = fits.Count > 0 && (need.All(fits[0].Joints.Contains) || groups.Count >= own.Count || room == 0) ? fits[0] : default;
-                    if (group.Triangles == null) groups.Add(group = (new List<int>(), new List<int>()));
-                    group.Triangles.AddRange(triangles.Skip(t * 3).Take(3));
-                    foreach (int j in need) if (!group.Joints.Contains(j)) group.Joints.Add(j);
+                    var groups = new List<(List<int> Triangles, List<int> Joints)>();
+                    var order = Enumerable.Range(0, tris.Count / 3).Select(t => (t, Need: tris.Skip(t * 3).Take(3).SelectMany(Uses).Distinct().OrderBy(j => j).ToList()))
+                        .OrderBy(x => x.Need[0]).ThenBy(x => x.Need.Count > 1 ? x.Need[1] : -1).ToList();
+                    foreach (var (t, need) in order)
+                    {
+                        if (room > 0 && need.Count > room) throw new InvalidDataException($"A triangle of LOD {lod} is weighted to {need.Count} joints; a mesh holds {room}.");
+                        var fits = groups.Where(g => room == 0 || g.Joints.Union(need).Count() <= room).OrderBy(g => need.Count(j => !g.Joints.Contains(j))).ToList();
+                        var group = fits.Count > 0 && (need.All(fits[0].Joints.Contains) || groups.Count >= most || room == 0) ? fits[0] : default;
+                        if (group.Triangles == null) groups.Add(group = (new List<int>(), new List<int>()));
+                        group.Triangles.AddRange(tris.Skip(t * 3).Take(3));
+                        foreach (int j in need) if (!group.Joints.Contains(j)) group.Joints.Add(j);
+                    }
+                    return groups;
                 }
-                if (groups.Count > own.Count)
-                    throw new InvalidDataException($"LOD {lod} of the other part moves on more joints than fit: it needs {groups.Count} meshes of up to {room} joints, and this model has {own.Count}. Build on a part with more meshes (or fewer joints).");
 
-                for (int g = 0; g < groups.Count; g++)
+                // one group into one mesh: its vertices, joint map and blend shapes
+                void Fill(NuRenderMesh mesh, List<int> tris, List<int> palette, NuRenderMesh[]? others)
                 {
-                    var (tris, palette) = groups[g];
                     var local = new Dictionary<int, ushort>();
                     var meshVertices = new List<Vertex>();
                     var meshIndices = new List<ushort>();
@@ -179,23 +187,45 @@ namespace Diorama.Editor
                     }
                     if (meshVertices.Count > ushort.MaxValue)
                         throw new InvalidDataException($"LOD {lod} has {meshVertices.Count:N0} vertices in one mesh, more than one mesh can hold (65,535).");
-                    var mesh = own[g];
                     var map = palette.Select(j => (byte)j).ToList();
                     while (map.Count < (mesh.SkinMtxMap?.Count ?? 0)) map.Add(255); // the game's joint maps are padded with 255
                     // blend shapes (a cape's, a face's) follow: each new vertex moves like the nearest old one
                     OBJConverter.RemapBlendShapes(mesh, OBJConverter.ReadVertices(mesh), meshVertices);
-                    OBJConverter.SetMeshData(mesh, meshVertices, meshIndices.ToArray(), all);
+                    OBJConverter.SetMeshData(mesh, meshVertices, meshIndices.ToArray(), others);
                     if (room > 0) mesh.SkinMtxMap = map;
-                    changed.Add(mesh);
+                    changedMeshes.Add(mesh);
                     done.Add(mesh);
                 }
-                foreach (var extra in own.Skip(groups.Count).Concat(rest))
+
+                var solid = Group(triangles, own.Count);
+                if (solid.Count > own.Count)
+                    throw new InvalidDataException($"LOD {lod} of the other part moves on more joints than fit: it needs {solid.Count} meshes of up to {room} joints, and this model has {own.Count}. Build on a part with more meshes (or fewer joints).");
+                for (int g = 0; g < solid.Count; g++)
+                    Fill(own[g], solid[g].Triangles, solid[g].Joints, all);
+                foreach (var extra in own.Skip(solid.Count).Concat(rest))
                 {
                     Empty(extra, vertices[0], all);
                     changed.Add(extra);
                     done.Add(extra);
                 }
-                notes.Add($"LOD {lod}: {from.Count} part{(from.Count == 1 ? "" : "s")} of {vertices.Count:N0} vertices and {triangles.Count / 3:N0} triangles{(groups.Count > 1 ? $", in {groups.Count} meshes (each holds up to {room} joints)" : "")}.");
+
+                // see-through pieces: meshes of their own, like this model's first, drawn with the given material
+                var clearGroups = clear.Count > 0 && separateMaterial >= 0 ? Group(clear, 1) : new(); // as few as hold their joints
+                var (clip, element) = FindElement(target, lod, own[0]);
+                foreach (var (tris, palette) in clearGroups)
+                {
+                    if (clip == null || element == null) throw new InvalidDataException($"LOD {lod}'s mesh isn't drawn by an element of its own, so no see-through mesh can be added beside it.");
+                    var mesh = MeshLike(own[0]);
+                    target.MeshSceneBlock.Meshes = target.MeshSceneBlock.Meshes.Append(mesh).ToArray();
+                    all = target.MeshSceneBlock.Meshes;
+                    Fill(mesh, tris, palette, null);
+                    var added = CopyElement(element);
+                    added.MeshIndex = (short)(all.Length - 1);
+                    added.MaterialIndex = (short)separateMaterial;
+                    clip.Elements = clip.Elements.Append(added).ToArray();
+                }
+                int groupCount = solid.Count;
+                notes.Add($"LOD {lod}: {from.Count} part{(from.Count == 1 ? "" : "s")} of {vertices.Count:N0} vertices and {(triangles.Count + clear.Count) / 3:N0} triangles{(groupCount > 1 ? $", in {groupCount} meshes (each holds up to {room} joints)" : "")}{(clearGroups.Count > 0 ? $"; {clear.Count / 3:N0} see-through triangles in {clearGroups.Count} mesh{(clearGroups.Count == 1 ? "" : "es")} of their own" : "")}.");
             }
 
             if (changed.Count == 0)
@@ -240,6 +270,45 @@ namespace Diorama.Editor
             for (int i = 0; i < from.Count; i++) Map(i);
             return map;
         }
+
+        /// <summary>The clip object and element that draw <paramref name="mesh"/> in a LOD (this game's layout), or nulls.</summary>
+        static (NuClipObject? Clip, NuClipItem? Element) FindElement(GScene_4F scene, int lod, NuRenderMesh mesh)
+        {
+            var display = scene.DisplayScene;
+            int index = Array.IndexOf(scene.MeshSceneBlock.Meshes, mesh);
+            foreach (var md in scene.CharacterData[lod].LayerMetadata)
+            {
+                if (md.SpecialIndex < 0 || md.SpecialIndex >= display.SpecialObjects.Count) continue;
+                var special = display.SpecialObjects[md.SpecialIndex];
+                if (special.ClipObjectIndex >= display.ClipObjects.Count) continue;
+                var clip = display.ClipObjects[(int)special.ClipObjectIndex];
+                var element = clip.Elements.FirstOrDefault(e => e.MeshIndex == index);
+                if (element != null) return (clip, element);
+            }
+            return (null, null);
+        }
+
+        static NuClipItem CopyElement(NuClipItem e) => new NuClipItem
+        {
+            OldGeometryIndex = e.OldGeometryIndex, OldMaterialIndex = e.OldMaterialIndex, MaterialIndex = e.MaterialIndex, TransformIndex = e.TransformIndex,
+            LightmapIndex = e.LightmapIndex, TransformIndex2 = e.TransformIndex2, MeshIndex = e.MeshIndex, LightmapType = e.LightmapType,
+            TransformType = e.TransformType, GeomType = e.GeomType, Unused = e.Unused, RequiresLightState = e.RequiresLightState, IsFaceOn = e.IsFaceOn,
+        };
+
+        /// <summary>A new mesh laid out like <paramref name="like"/> (its buffers' layouts and flags), with nothing in it yet.</summary>
+        static NuRenderMesh MeshLike(NuRenderMesh like) => new NuRenderMesh
+        {
+            VertexBuffers = (VertexList[])like.VertexBuffers.Clone(),
+            VertexBufferFlags = like.VertexBufferFlags.Select(f => f == 0 || f == 0x503 ? 0x502u : f).ToArray(),
+            VertexBufferOffsets = new int[like.VertexBufferOffsets.Length],
+            Indices = Array.Empty<ushort>(),
+            IndicesFlags = like.IndicesFlags,
+            VbInstBits = like.VbInstBits,
+            SkinMtxMap = like.SkinMtxMap?.ToList(),
+            DefunctOptFlags = like.DefunctOptFlags,
+            CentreExtents = (System.Numerics.Vector4[])like.CentreExtents.Clone(),
+            DensityDiscDiameter = like.DensityDiscDiameter,
+        };
 
         static Vertex Copy(Vertex v) => new Vertex
         {
