@@ -89,50 +89,93 @@ namespace Diorama.Editor
             for (int lod = 0; lod < target.CharacterData.Count; lod++)
             {
                 var from = MeshesOf(source, Math.Min(lod, source.CharacterData.Count - 1)).Where(m => !m.Breakup).Select(m => m.Mesh).Distinct().ToList();
-                // the part's own meshes first: the first gets the new geometry, the rest (and the breakup parts) are emptied
-                var to = MeshesOf(target, lod).OrderBy(m => m.Breakup).Select(m => m.Mesh).Distinct().Where(m => !done.Contains(m)).ToList();
-                if (to.Count == 0 || from.Count == 0) continue;
+                // this model's own meshes take the new geometry; its breakup pieces (and own meshes left over) are emptied
+                var drawn = MeshesOf(target, lod);
+                var own = drawn.Where(m => !m.Breakup).Select(m => m.Mesh).Distinct().Where(m => !done.Contains(m)).ToList();
+                var rest = drawn.Where(m => m.Breakup).Select(m => m.Mesh).Distinct().Where(m => !done.Contains(m) && !own.Contains(m)).ToList();
+                if (own.Count == 0 || from.Count == 0) continue;
 
+                // every vertex with the joints (of this model) its weights name
                 var vertices = new List<Vertex>();
-                var indices = new List<ushort>();
-                var palette = new List<byte>();
+                var joints = new List<int[]>();
+                var triangles = new List<int>();
                 foreach (var mesh in from)
                 {
                     int start = vertices.Count;
                     foreach (var v in OBJConverter.ReadVertices(mesh))
                     {
-                        ushort Map(ushort i)
+                        int Joint(ushort i)
                         {
                             int joint = mesh.SkinMtxMap is { Count: > 0 } map ? map[Math.Min(i, map.Count - 1)] : i;
-                            var (own, by) = joint < jointMap.Length ? jointMap[joint] : (0, null);
+                            var (mine, by) = joint < jointMap.Length ? jointMap[joint] : (0, null);
                             if (by != null) usedMissing.Add($"{sourceJoints[joint]} (follows {by})");
-                            int at = palette.IndexOf((byte)own);
-                            if (at < 0) { palette.Add((byte)own); at = palette.Count - 1; }
-                            return (ushort)at;
+                            return mine;
                         }
-                        v.BlendIndices = new VectorI4(Map(v.BlendIndices.X), Map(v.BlendIndices.Y), Map(v.BlendIndices.Z), Map(v.BlendIndices.W));
+                        joints.Add(new[] { Joint(v.BlendIndices.X), Joint(v.BlendIndices.Y), Joint(v.BlendIndices.Z), Joint(v.BlendIndices.W) });
                         vertices.Add(v);
                     }
-                    indices.AddRange(OBJConverter.ReadIndices(mesh).Select(i => (ushort)(i + start)));
+                    triangles.AddRange(OBJConverter.ReadIndices(mesh).Select(i => i + start));
                 }
-                if (vertices.Count > ushort.MaxValue)
-                    throw new InvalidDataException($"LOD {lod} has {vertices.Count:N0} vertices, more than one mesh can hold (65,535).");
+                float[] Weights(Vertex v) => new[] { v.BlendWeights.X, v.BlendWeights.Y, v.BlendWeights.Z, v.BlendWeights.W };
+                IEnumerable<int> Uses(int vertex) => joints[vertex].Where((j, k) => Weights(vertices[vertex])[k] > 0 || k == 0);
 
-                // The game's joint maps are padded to a fixed length with 255.
-                int length = to[0].SkinMtxMap?.Count ?? 0;
-                while (palette.Count < length) palette.Add(255);
+                // A mesh's joint map holds a fixed number of joints (27 in this game, padded with 255), so the triangles are
+                // grouped into meshes that each need no more joints than that: each goes, in order of the joints it uses (so
+                // neighbours stay together), to the group it adds fewest joints to, a new group only when none has room.
+                int room = own.Max(m => m.SkinMtxMap?.Count ?? 0);
+                var groups = new List<(List<int> Triangles, List<int> Joints)>();
+                var order = Enumerable.Range(0, triangles.Count / 3).Select(t => (t, Need: triangles.Skip(t * 3).Take(3).SelectMany(Uses).Distinct().OrderBy(j => j).ToList()))
+                    .OrderBy(x => x.Need[0]).ThenBy(x => x.Need.Count > 1 ? x.Need[1] : -1).ToList();
+                foreach (var (t, need) in order)
+                {
+                    if (room > 0 && need.Count > room) throw new InvalidDataException($"A triangle of LOD {lod} is weighted to {need.Count} joints; a mesh holds {room}.");
+                    var fits = groups.Where(g => room == 0 || g.Joints.Union(need).Count() <= room).OrderBy(g => need.Count(j => !g.Joints.Contains(j))).ToList();
+                    var group = fits.Count > 0 && (need.All(fits[0].Joints.Contains) || groups.Count >= own.Count || room == 0) ? fits[0] : default;
+                    if (group.Triangles == null) groups.Add(group = (new List<int>(), new List<int>()));
+                    group.Triangles.AddRange(triangles.Skip(t * 3).Take(3));
+                    foreach (int j in need) if (!group.Joints.Contains(j)) group.Joints.Add(j);
+                }
+                if (groups.Count > own.Count)
+                    throw new InvalidDataException($"LOD {lod} of the other part moves on more joints than fit: it needs {groups.Count} meshes of up to {room} joints, and this model has {own.Count}. Build on a part with more meshes (or fewer joints).");
 
-                OBJConverter.SetMeshData(to[0], vertices, indices.ToArray(), all);
-                to[0].SkinMtxMap = palette;
-                changed.Add(to[0]);
-                done.Add(to[0]);
-                foreach (var extra in to.Skip(1))
+                for (int g = 0; g < groups.Count; g++)
+                {
+                    var (tris, palette) = groups[g];
+                    var local = new Dictionary<int, ushort>();
+                    var meshVertices = new List<Vertex>();
+                    var meshIndices = new List<ushort>();
+                    foreach (int vertex in tris)
+                    {
+                        if (!local.TryGetValue(vertex, out var at))
+                        {
+                            var v = Copy(vertices[vertex]);
+                            var w = Weights(v);
+                            ushort Slot(int k) => room > 0 ? (ushort)Math.Max(0, w[k] > 0 || k == 0 ? palette.IndexOf(joints[vertex][k]) : 0) : (ushort)joints[vertex][k];
+                            v.BlendIndices = new VectorI4(Slot(0), Slot(1), Slot(2), Slot(3));
+                            local[vertex] = at = (ushort)meshVertices.Count;
+                            meshVertices.Add(v);
+                        }
+                        meshIndices.Add(at);
+                    }
+                    if (meshVertices.Count > ushort.MaxValue)
+                        throw new InvalidDataException($"LOD {lod} has {meshVertices.Count:N0} vertices in one mesh, more than one mesh can hold (65,535).");
+                    var mesh = own[g];
+                    var map = palette.Select(j => (byte)j).ToList();
+                    while (map.Count < (mesh.SkinMtxMap?.Count ?? 0)) map.Add(255); // the game's joint maps are padded with 255
+                    // blend shapes (a cape's, a face's) follow: each new vertex moves like the nearest old one
+                    OBJConverter.RemapBlendShapes(mesh, OBJConverter.ReadVertices(mesh), meshVertices);
+                    OBJConverter.SetMeshData(mesh, meshVertices, meshIndices.ToArray(), all);
+                    if (room > 0) mesh.SkinMtxMap = map;
+                    changed.Add(mesh);
+                    done.Add(mesh);
+                }
+                foreach (var extra in own.Skip(groups.Count).Concat(rest))
                 {
                     Empty(extra, vertices[0], all);
                     changed.Add(extra);
                     done.Add(extra);
                 }
-                notes.Add($"LOD {lod}: {from.Count} part{(from.Count == 1 ? "" : "s")} of {vertices.Count:N0} vertices and {indices.Count / 3:N0} triangles.");
+                notes.Add($"LOD {lod}: {from.Count} part{(from.Count == 1 ? "" : "s")} of {vertices.Count:N0} vertices and {triangles.Count / 3:N0} triangles{(groups.Count > 1 ? $", in {groups.Count} meshes (each holds up to {room} joints)" : "")}.");
             }
 
             if (changed.Count == 0)
@@ -176,10 +219,17 @@ namespace Diorama.Editor
             return map;
         }
 
+        static Vertex Copy(Vertex v) => new Vertex
+        {
+            Position = v.Position, Normal = v.Normal, Tangent = v.Tangent, ColorSet0 = v.ColorSet0, ColorSet1 = v.ColorSet1,
+            UVSet01 = v.UVSet01, UVSet23 = v.UVSet23, BlendIndices = v.BlendIndices, BlendWeights = v.BlendWeights,
+        };
+
         /// <summary>A mesh reduced to one invisible triangle, so a part this model had doesn't show.</summary>
         static void Empty(NuRenderMesh mesh, Vertex sample, NuRenderMesh[] all)
         {
             var v = new List<Vertex> { sample, sample, sample };
+            OBJConverter.RemapBlendShapes(mesh, OBJConverter.ReadVertices(mesh), v);
             OBJConverter.SetMeshData(mesh, v, new ushort[] { 0, 1, 2 }, all);
         }
     }

@@ -22,9 +22,17 @@ namespace Diorama.Editor
     /// </summary>
     public static class PartImport
     {
-        /// <summary>The material the part takes: diffuse and normal map, skinned (the hot dog guy's, in DC Super-Villains).</summary>
+        /// <summary>The material tried first: diffuse and normal map, skinned (the hot dog guy's, in DC Super-Villains; tried in game).</summary>
         const string DonorScene = @"CHARS\SUPER_CHARACTER\ADDITIONALMODEL\ADDITIONALMODEL_HOTDOGGUY_DX11.GHG";
         const string DonorMaterial = "MAT_HOTDOGGUY";
+
+        /// <summary>
+        /// A material of this game's that the part can take: one showing a colour texture (and a normal map, if
+        /// <see cref="Normal"/> is set) and binding no other texture, for vertices laid out like the base part's.
+        /// </summary>
+        record Donor(string Path, string Material, string? Variant, byte[] Diffuse, byte[]? Normal);
+
+        static readonly Dictionary<(string Root, string Layout, uint Version, string Folder), Donor?> donors = new();
 
         const int Cell = 512;      // each colour texture gets a cell this size in the packed texture
         const int Align = 32;      // texture page bits are copied in 32-pixel squares, so their blocks line up down to mip 3
@@ -44,8 +52,22 @@ namespace Diorama.Editor
             var source = Load(sourcePath);
             var target = Load(basePath);
             string gameRoot = GameRootOf(basePath) ?? throw new InvalidDataException("The part to build on should be in this game's CHARS folder, so its material can be found.");
-            string donorPath = Path.Combine(gameRoot, DonorScene);
-            if (!File.Exists(donorPath)) throw new FileNotFoundException($"This needs {DonorScene} from the game (its material shows a colour texture on a skinned part).");
+            // the materials the part's own meshes are drawn with (not its breakup pieces), and their automatic variants;
+            // the rest (blend-shape and rigid variants, breakup materials) stay as they are, with their textures
+            var used = Enumerable.Range(0, target.CharacterData.Count).SelectMany(lod => PartTransplant.MeshesOf(target, lod))
+                .Where(m => !m.Breakup).Select(m => m.Material).Where(i => i >= 0 && i < target.MaterialBlock.Materials.Length && target.MaterialBlock.Materials[i] != null).ToHashSet();
+            if (used.Count == 0) throw new InvalidDataException($"{Path.GetFileName(basePath)} draws no meshes of its own to build on.");
+            var main = target.MaterialBlock.Materials[used.Min()];
+            foreach (int i in used.ToList())
+                if ((target.MaterialBlock.Materials[i] as NuMaterialData_E0)?.ChildMaterial is { } child && child.MaterialName.EndsWith(":VARIANT_AUTO"))
+                    used.Add(Array.IndexOf(target.MaterialBlock.Materials, child));
+            used.Remove(-1);
+            string layout = Layout(main.VertexLayout);
+            var donor = FindDonor(gameRoot, layout, main.Version, Path.GetDirectoryName(Path.GetFullPath(basePath))!)
+                ?? throw new InvalidDataException(layout.Contains("uvSet")
+                    ? $"None of this game's character parts has a textured material for vertices laid out like this part's ({layout}); build on another part of the same kind, or bring it in without textures."
+                    : $"{Path.GetFileName(basePath)} has no texture coordinates, so it can't show a texture; build on another part of the same kind, or bring it in without textures.");
+            string donorPath = donor.Path;
 
             var sourceTex = NxgTextures.Read(Path.ChangeExtension(sourcePath, ".NXG_TEXTURES"))?.TextureSet?.Textures
                 ?? throw new FileNotFoundException("The other game's part has no .NXG_TEXTURES beside it.");
@@ -142,31 +164,28 @@ namespace Diorama.Editor
             var moved = PartTransplant.Transplant(source, target, out _);
             notes.AddRange(moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Warning")));
 
-            // the material, on every one of this part's material slots
-            var donorTex = NxgTextures.Read(Path.ChangeExtension(donorPath, ".NXG_TEXTURES")).TextureSet.Textures;
+            // the material, on the slots the part is drawn with (its variant on the variant slots)
             var block = target.MaterialBlock;
             var children = block.Materials.Select(m => (m as NuMaterialData_E0)?.ChildMaterial?.MaterialName).ToList();
-            string? layout = null;
+            var replaced = new List<NuMaterialData_E0>();
             for (int i = 0; i < block.Materials.Length; i++)
             {
                 var old = block.Materials[i];
-                if (old == null) continue;
-                bool variant = old.MaterialName.Contains(":VARIANT");
-                var donor = ((GScene_4F)GScene.Parse(donorPath)).MaterialBlock.Materials.OfType<NuMaterialData_E0>().FirstOrDefault(m => m.MaterialName == DonorMaterial + (variant ? ":VARIANT_AUTO" : ""))
-                    ?? throw new InvalidDataException($"{DonorScene} has no {DonorMaterial} material.");
-                if (!variant)
-                {
-                    layout ??= Layout(old.VertexLayout);
-                    if (Layout(donor.VertexLayout) != Layout(old.VertexLayout))
-                        throw new InvalidDataException($"This part's vertices are laid out differently from the textured material's ({Layout(old.VertexLayout)}); build on another part, or bring it in without textures.");
-                }
-                donor.Parent = block;
-                donor.MaterialName = old.MaterialName;
-                block.Materials[i] = donor;
+                if (old == null || !used.Contains(i)) continue;
+                // the donor's material or its variant: whichever is laid out like the slot (a variant may or may not be skinned)
+                var donorMaterials = ((GScene_4F)GScene.Parse(donorPath)).MaterialBlock.Materials.OfType<NuMaterialData_E0>().ToList();
+                var pair = new[] { donor.Material, donor.Variant }.Where(n => n != null).Select(n => donorMaterials.First(m => m.MaterialName == n)).ToList();
+                var copy = pair.FirstOrDefault(m => Layout(m.VertexLayout) == Layout(old.VertexLayout))
+                    ?? (old.MaterialName.Contains(":VARIANT") ? pair.Last() : pair[0]);
+                copy.Parent = block;
+                copy.MaterialName = old.MaterialName;
+                block.Materials[i] = copy;
+                replaced.Add(copy);
             }
             for (int i = 0; i < block.Materials.Length; i++)
                 if (block.Materials[i] is NuMaterialData_E0 m)
                     m.ChildMaterial = children[i] == null ? null : block.Materials.FirstOrDefault(x => x?.MaterialName == children[i]);
+            bool keepOwn = block.Materials.Any(m => m != null && !replaced.Contains(m));
 
             // the textures: the packed one and a flat normal map, in the base part's texture file
             string outStem = Stem(outPath), baseStem = Stem(basePath);
@@ -181,21 +200,26 @@ namespace Diorama.Editor
             var normal = new NuTexture { Header = Header(headers.ElementAtOrDefault(1) ?? headers.ElementAtOrDefault(0), nrmName) };
             PackedTexture(diffuse, sourceTex, cells, first, page, bits, perSide, blockBytes);
             FlatNormal(normal, first);
-            byte[] textureBytes = nxg.ToBytes(new[] { diffuse, normal });
+            var made = donor.Normal != null ? new[] { diffuse, normal } : new[] { diffuse };
+            var own = keepOwn ? nxg.TextureSet.Textures : Array.Empty<NuTexture>();
+            byte[] textureBytes = nxg.ToBytes(own.Concat(made));
 
             // texture names in the model, and in the material's own texture bindings (the game goes by those: checksum and name)
             var names = target.Metadata.MetaStrings;
-            names.Clear();
-            names.Add(new NuDynamicString(diffName));
-            names.Add(new NuDynamicString(nrmName));
-            foreach (var m in block.Materials.OfType<NuMaterialData_E0>())
+            if (names.Count != own.Length)
             {
-                m.Diffuse0Index = 0; m.Normal0Index = 1;
+                names.Clear();
+                foreach (var t in own) names.Add(new NuDynamicString(string.IsNullOrEmpty(t.Header.Name) ? t.Header.Path : t.Header.Name));
+            }
+            foreach (var t in made) names.Add(new NuDynamicString(t.Header.Name));
+            foreach (var m in replaced)
+            {
+                m.Diffuse0Index = own.Length; m.Normal0Index = donor.Normal != null ? own.Length + 1 : -1;
                 foreach (var list in new[] { m.PixelFixupData, m.VertexFixupData, m.TempVertexFixupData })
                     foreach (var h in list ?? new())
                     {
                         if (h.Checksum.All(x => x == 0)) continue;
-                        var to = h.Checksum.SequenceEqual(donorTex[0].Header.Checksum) ? diffuse.Header : h.Checksum.SequenceEqual(donorTex[1].Header.Checksum) ? normal.Header : null;
+                        var to = h.Checksum.SequenceEqual(donor.Diffuse) ? diffuse.Header : donor.Normal != null && h.Checksum.SequenceEqual(donor.Normal) ? normal.Header : null;
                         if (to == null) continue;
                         h.Name = to.Name;
                         h.Checksum = (byte[])to.Checksum.Clone();
@@ -224,6 +248,16 @@ namespace Diorama.Editor
             // everything is built in memory before anything is written
             var model = new MemoryStream();
             using (var output = new RawFile(model)) target.Write(output, new GSerializationContext());
+            try
+            {
+                var check = new RawFile(new MemoryStream(model.ToArray(), false));
+                check.SetFileLocation(new FilesystemFileLocation(outPath));
+                GScene.Parse(check);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidDataException($"The model came out unreadable ({ex.Message}), so nothing was written. {Path.GetFileName(basePath)} with {Stem(donor.Path)}'s material {donor.Material} doesn't work together; build on another part of the same kind.");
+            }
             var shaderBytes = new MemoryStream();
             using (var output = new RawFile(shaderBytes)) shaders.Handle(new SchemaSerializer(output, true), 0);
             byte[]? res = RenamedResourceFile(Path.ChangeExtension(basePath, ".GHG.RES"), Rename);
@@ -238,12 +272,58 @@ namespace Diorama.Editor
             if (res != null) File.WriteAllBytes(Path.Combine(folder, outBase + ".GHG.RES"), res);
             if (shaderList != null) File.WriteAllBytes(Path.Combine(folder, outStem + ".SHADERS"), shaderList);
 
-            notes.Insert(0, $"Made {Path.GetFileName(outPath)} from {Path.GetFileName(sourcePath)}: its shape, bone weights and textures ({cells.Count} packed into one {size}x{size}{(bits.Count > 0 ? $", with {bits.Count} bit(s) of its LEGO texture page" : "")}), on {Path.GetFileName(basePath)}'s skeleton with a material of this game's.");
+            notes.Insert(0, $"Made {Path.GetFileName(outPath)} from {Path.GetFileName(sourcePath)}: its shape, bone weights and textures ({cells.Count} packed into one {size}x{size}{(bits.Count > 0 ? $", with {bits.Count} bit(s) of its LEGO texture page" : "")}), on {Path.GetFileName(basePath)}'s skeleton with {Stem(donor.Path)}'s material {donor.Material}.");
             notes.Add($"Written beside it: {outBase}.NXG_TEXTURES, {outBase}.PC_SHADERS{(res != null ? $", {outBase}.GHG.RES" : "")}{(shaderList != null ? $", {outStem}.SHADERS" : "")}.");
             int mask = PartTransplant.LayerMask(target);
             notes.Add($"For the game to use it, the part's .CD (Flux) loads {outStem} (name the .CD {outStem} too), with Default Layers, and the Cutscene, Hat, Hair, Cape and Christmas Hat Layers, set to {mask}. A character's attachment then names it as its Resource File, with Tint Colour white.");
             notes.Add("Parts with no texture of their own keep their vertex colours (times the attachment's Tint Colour); metallic or bumpy finishes from the other game don't come along.");
             return notes;
+        }
+
+        /// <summary>
+        /// A textured material for vertices laid out as <paramref name="layout"/>: the hot dog guy's if it fits, otherwise
+        /// a character part's (preferring one with a normal map) whose texture bindings are only its colour texture and
+        /// normal map, both stored in its own texture file. Parts in <paramref name="folder"/> (the base part's: capes for
+        /// a cape) are looked at first and faces last, as their materials do face things. Remembered per game, layout and folder.
+        /// </summary>
+        static Donor? FindDonor(string gameRoot, string layout, uint version, string folder)
+        {
+            lock (donors)
+                if (donors.TryGetValue((gameRoot, layout, version, folder), out var known)) return known;
+            Donor? found = null, withoutNormal = null;
+            string first = Path.Combine(gameRoot, DonorScene);
+            static bool IsFace(string f) => f.Contains(@"\FACE", StringComparison.OrdinalIgnoreCase) || f.Contains(@"\SUPER_FACE", StringComparison.OrdinalIgnoreCase);
+            var files = new[] { first }.Concat(Directory.EnumerateFiles(Path.Combine(gameRoot, "CHARS", "SUPER_CHARACTER"), "*_DX11.GHG", SearchOption.AllDirectories)
+                .OrderByDescending(f => string.Equals(Path.GetDirectoryName(f), folder, StringComparison.OrdinalIgnoreCase)).ThenBy(IsFace).ThenBy(f => f));
+            foreach (var file in files)
+            {
+                if (!File.Exists(file) || !File.Exists(Path.ChangeExtension(file, ".NXG_TEXTURES")) || !File.Exists(Path.ChangeExtension(file, ".PC_SHADERS"))) continue;
+                GScene_4F? scene;
+                try { scene = GScene.Parse(file) as GScene_4F; } catch { continue; }
+                if (scene?.MaterialBlock?.Materials == null) continue;
+                NuTexture[]? textures = null;
+                foreach (var m in scene.MaterialBlock.Materials.OfType<NuMaterialData_E0>())
+                {
+                    // a material is read by its block's version, so one stored in another version can't move into this block
+                    if (m.MaterialName.Contains(":VARIANT") || m.Diffuse0Index < 0 || m.Version != version || Layout(m.VertexLayout) != layout) continue;
+                    try { textures ??= NxgTextures.Read(Path.ChangeExtension(file, ".NXG_TEXTURES"))?.TextureSet?.Textures; } catch { textures = null; }
+                    if (textures == null) break;
+                    var diffuse = m.Diffuse0Index < textures.Length ? textures[m.Diffuse0Index] : null;
+                    var normal = m.Normal0Index >= 0 && m.Normal0Index < textures.Length ? textures[m.Normal0Index] : null;
+                    // both in its own texture file (not the shared LEGO page), so the bindings can be pointed at ours
+                    if (diffuse == null || string.IsNullOrEmpty(diffuse.Header.Name) || (m.Normal0Index >= 0 && (normal == null || string.IsNullOrEmpty(normal.Header.Name)))) continue;
+                    var child = m.ChildMaterial as NuMaterialData_E0;
+                    var bound = new[] { m, child }.Where(x => x != null).SelectMany(x => new[] { x!.PixelFixupData, x.VertexFixupData, x.TempVertexFixupData })
+                        .SelectMany(l => l ?? new()).Where(h => h.Checksum.Any(b => b != 0)).ToList();
+                    if (!bound.Any(h => h.Checksum.SequenceEqual(diffuse.Header.Checksum))) continue;
+                    if (!bound.All(h => h.Checksum.SequenceEqual(diffuse.Header.Checksum) || (normal != null && h.Checksum.SequenceEqual(normal.Header.Checksum)))) continue;
+                    var donor = new Donor(file, m.MaterialName, child?.MaterialName, diffuse.Header.Checksum, normal?.Header.Checksum);
+                    if (normal != null) { found = donor; break; }
+                    withoutNormal ??= donor;
+                }
+                if (found != null) break;
+            }
+            lock (donors) return donors[(gameRoot, layout, version, folder)] = found ?? withoutNormal;
         }
 
         static GScene_4F Load(string path)

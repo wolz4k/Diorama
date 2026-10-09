@@ -138,6 +138,30 @@ namespace Diorama.Tests
             Assert.IsFalse(notes.Any(n => n.StartsWith("Warning")), "every joint should be matched");
         }
 
+        /// <summary>
+        /// Mach-5's armour on the SWAT armour, whose vertices have no tangents: it takes another part's material laid out
+        /// like that, in the same material version (the hot dog guy's doesn't fit). Tried in game on a copy of a SWAT officer.
+        /// </summary>
+        [TestMethod]
+        public void ArmourOnAnotherLayout()
+        {
+            string source = Path.Combine(Other, @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT\ARMOUR_MACH5_DX11.GHG");
+            string basepart = Path.Combine(Game, @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT\TORSO_ATTACHMENT_ARMOUR_SWAT_DX11.GHG");
+            if (!File.Exists(source) || !File.Exists(basepart)) Assert.Inconclusive("needs both games");
+            string dir = Path.Combine(Path.GetTempPath(), "DioramaPartImport", @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT");
+            Directory.CreateDirectory(dir);
+            string output = Path.Combine(dir, "ARMOUR_MACH5_DX11.GHG");
+            var notes = PartImport.Build(source, basepart, output);
+            foreach (var n in notes) Console.WriteLine(n);
+            Assert.IsFalse(notes[0].Contains("HOTDOGGUY"), "the hot dog guy's material is laid out differently");
+            var model = Load(output);
+            var block = model.MaterialBlock.Materials;
+            Assert.IsTrue(block.Where(m => m != null).Select(m => m.Version).Distinct().Count() == 1, "every material in the block's version");
+            for (int lod = 0; lod < model.CharacterData.Count; lod++)
+                foreach (var (mesh, _, _) in PartTransplant.MeshesOf(model, lod))
+                    Assert.IsTrue((mesh.SkinMtxMap?.Count ?? 0) <= 27, "a mesh's joint map holds 27");
+        }
+
         /// <summary>The game's resource-header files read and write back unchanged, and renaming keeps every file listed.</summary>
         [TestMethod]
         public void ResourceFilesRename()
