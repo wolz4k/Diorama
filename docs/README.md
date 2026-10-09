@@ -63,14 +63,15 @@ Models from other games can't simply be copied: LEGO Marvel's Avengers' models a
 1. Open this game's part of the same kind, for example `CHARS\SUPER_CHARACTER\WINGS_FEATHER\WINGS_FEATHER_DX11.GHG` for wings.
 2. Right-click the scene, choose **Bring In Part from Another Game...** and pick the other game's part (Avengers' `WINGS_FALCON_AOU_DX11.GHG`).
 3. Save the new part where your mod keeps it, under the name its `.CD` will load, for example `<mod>\CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT\WINGS_FALCON_AOU_DX11.GHG`. Diorama writes the model with everything beside it and opens it:
-   - the other part's shape, UVs, vertex colours and bone weights, in every LOD (joints are matched by name, so pick a part with the same skeleton);
-   - its colour textures packed into one texture, with any bits of its game's LEGO texture page it uses (moulded holes and the like), on a material of this game's that shows a colour texture;
-   - its `.NXG_TEXTURES`, `.PC_SHADERS`, `.GHG.RES` and `.SHADERS`, all naming the new part's own files in that folder.
-4. Make the part's `.CD` in Flux under the same name (`WINGS_FALCON_AOU.CD`), loading that model, with *Default Layers* and the other *… Layers* set to the mask the report names (2 for the feather wings). Give the character's attachment that *Resource File* and a white *Tint Colour*. Its animations come from the part's animation set, which can be this game's one for the same skeleton (`Basic_Wings_Feather`).
+   - the other part's shape, UVs, vertex colours and bone weights, in every LOD. Joints are matched by name; the part's top joint (often named after the part) goes on this one's top joint, and a joint this part lacks follows its nearest parent (the report names those: they hold still instead of moving on their own). Pieces the other game hangs on a joint without weights move with the joint the rest of the part uses. Each mesh holds up to 27 joints, so a part is spread over this one's meshes if it needs more;
+   - its colour textures (up to 1024x1024 each, repeating ones laid out as tiles) packed into one texture, with any bits of its game's LEGO texture page it uses (moulded holes and the like), on a material of this game's for the same vertex layout, found among its character parts. A part with no texture of its own gets a white one, so it shows its vertex colours;
+   - see-through pieces on a mesh of their own, with a see-through material of this game's;
+   - its `.NXG_TEXTURES`, `.PC_SHADERS`, `.GHG.RES` and `.SHADERS`, all naming the new part's own files in that folder. The model is read back before anything is written.
+4. Make the part's `.CD` in Flux under the same name (`WINGS_FALCON_AOU.CD`), starting from the base part's `.CD` (so it keeps that part's skeleton and animations), loading that model, with *Default Layers* and the other *… Layers* set to the mask the report names (2 for the feather wings). Give the character's attachment that *Resource File* and a white *Tint Colour*.
 
-Parts without a texture of their own keep their vertex colours (times the attachment's tint); metallic and bump finishes from the other game don't come along. If the textures can't be brought (textures over 512x512, formats that differ), only the shape comes into the open model, as below, and the report says why: keep this game's materials, *Undo Mesh Replacement* takes it back, and **Save GScene As...** puts it in your mod.
+Metallic and bump finishes from the other game don't come along, and neither do its animations, so a gadget the other game swings into place (the Blaster backpack's gun) stays in its rest pose. If the textures can't be brought (formats that differ, a base with no texture coordinates or no material for its layout), only the shape comes into the open model, as below, and the report says why: keep this game's materials, *Undo Mesh Replacement* takes it back, and **Save GScene As...** puts it in your mod. Capes aren't supported yet: a complex cape's layers and blend shapes make the game crash when it moves.
 
-Tried in game: Falcon's wings, textured, show on Hawkman and Batman and move as they fly.
+Tried in game (LEGO Marvel's Avengers into LEGO DC Super-Villains): Falcon's wings; Peggy Carter's hat and hair; Mach-5's and Citizen V's armour; the Blaster backpack, with its see-through lens.
 
 ## Supported Games
 
