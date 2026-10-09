@@ -86,19 +86,22 @@ namespace Diorama.Editor
                 kinds[i] = (Kind.Texture, d);
                 if (!cells.Contains(d)) cells.Add(d);
             }
-            if (cells.Count == 0) throw new InvalidDataException("The other game's part has no colour textures of its own; bring it in without textures (Bring In Part from Another Game, then Save As).");
-
-            var first = sourceTex[cells[0]];
+            // Plain LEGO parts have no texture of their own (vertex colours, maybe bits of the LEGO page): the packed texture
+            // is then white, with those bits. The compression is the textures' (or the page's), the image header this game's.
+            var pageTex = kinds.Values.Where(k => k.Kind == Kind.Page).Select(k => sourceTex[k.Texture]).FirstOrDefault();
+            var first = cells.Count > 0 ? sourceTex[cells[0]] : null;
+            uint fourCC = first?.FourCC ?? (pageTex is { FourCC: 0x31545844 or 0x35545844 or 0x33545844 } ? pageTex.FourCC : 0x31545844u);
+            var template = NxgTextures.Read(Path.ChangeExtension(donor.Path, ".NXG_TEXTURES")).TextureSet.Textures.First(t => t.Header.Checksum.SequenceEqual(donor.Diffuse));
             foreach (int c in cells)
             {
                 var t = sourceTex[c];
-                if (t.FourCC != first.FourCC || t.IsCubemap) throw new InvalidDataException($"Its textures are stored in different formats ({t.Header.Name}); they need to be the same to be packed together.");
+                if (t.FourCC != fourCC || t.IsCubemap) throw new InvalidDataException($"Its textures are stored in different formats ({t.Header.Name}); they need to be the same to be packed together.");
                 if (t.Width > Cell || t.Height > Cell || t.Width != t.Height || (t.Width & (t.Width - 1)) != 0)
                     throw new InvalidDataException($"{t.Header.Name} is {t.Width}x{t.Height}; textures up to {Cell}x{Cell} (square) can be packed so far.");
             }
-            int blockBytes = first.FourCC == 0x31545844 ? 8 : first.FourCC == 0x35545844 || first.FourCC == 0x33545844 ? 16 : 0;
+            int blockBytes = fourCC == 0x31545844 ? 8 : fourCC == 0x35545844 || fourCC == 0x33545844 ? 16 : 0;
             if (blockBytes == 0) throw new InvalidDataException("Its textures aren't DXT1/DXT3/DXT5, which is what can be packed so far.");
-            int perSide = cells.Count + 1 <= 4 ? 2 : cells.Count + 1 <= 16 ? 4 : throw new InvalidDataException($"It has {cells.Count} textures; up to 15 can be packed.");
+            int perSide = cells.Count == 0 ? 1 : cells.Count + 1 <= 4 ? 2 : cells.Count + 1 <= 16 ? 4 : throw new InvalidDataException($"It has {cells.Count} textures; up to 15 can be packed.");
             int size = perSide * Cell;
             int spare = perSide * perSide - 1; // the last cell: white, plus the LEGO page bits
             (int X, int Y) CellAt(int index) => (index % perSide * Cell, index / perSide * Cell);
@@ -112,7 +115,7 @@ namespace Diorama.Editor
             if (pageMeshes.Count > 0)
             {
                 page = sourceTex[kinds[pageMeshes[0].Material].Texture];
-                if (page.FourCC != first.FourCC || page.Width % Align != 0)
+                if (page.FourCC != fourCC || page.Width % Align != 0)
                 {
                     notes.Add("Its LEGO texture page is stored differently from its textures, so the parts that use it are plain colour.");
                     foreach (var k in kinds.Where(k => k.Value.Kind == Kind.Page).ToList()) kinds[k.Key] = (Kind.Plain, -1);
@@ -162,7 +165,7 @@ namespace Diorama.Editor
 
             // the shape and weights
             var moved = PartTransplant.Transplant(source, target, out _);
-            notes.AddRange(moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Warning")));
+            notes.AddRange(moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Warning") || n.Contains("weren't weighted")));
 
             // the material, on the slots the part is drawn with (its variant on the variant slots)
             var block = target.MaterialBlock;
@@ -198,8 +201,8 @@ namespace Diorama.Editor
             var headers = nxg.TextureSet.Textures.Select(t => t.Header).ToList();
             var diffuse = new NuTexture { Header = Header(headers.ElementAtOrDefault(0), diffName) };
             var normal = new NuTexture { Header = Header(headers.ElementAtOrDefault(1) ?? headers.ElementAtOrDefault(0), nrmName) };
-            PackedTexture(diffuse, sourceTex, cells, first, page, bits, perSide, blockBytes);
-            FlatNormal(normal, first);
+            PackedTexture(diffuse, sourceTex, cells, fourCC, template, page, bits, perSide, blockBytes);
+            FlatNormal(normal, template);
             var made = donor.Normal != null ? new[] { diffuse, normal } : new[] { diffuse };
             var own = keepOwn ? nxg.TextureSet.Textures : Array.Empty<NuTexture>();
             byte[] textureBytes = nxg.ToBytes(own.Concat(made));
@@ -272,7 +275,7 @@ namespace Diorama.Editor
             if (res != null) File.WriteAllBytes(Path.Combine(folder, outBase + ".GHG.RES"), res);
             if (shaderList != null) File.WriteAllBytes(Path.Combine(folder, outStem + ".SHADERS"), shaderList);
 
-            notes.Insert(0, $"Made {Path.GetFileName(outPath)} from {Path.GetFileName(sourcePath)}: its shape, bone weights and textures ({cells.Count} packed into one {size}x{size}{(bits.Count > 0 ? $", with {bits.Count} bit(s) of its LEGO texture page" : "")}), on {Path.GetFileName(basePath)}'s skeleton with {Stem(donor.Path)}'s material {donor.Material}.");
+            notes.Insert(0, $"Made {Path.GetFileName(outPath)} from {Path.GetFileName(sourcePath)}: its shape, bone weights and textures ({(cells.Count == 0 ? "none of its own: plain colour" : cells.Count + " packed")} into one {size}x{size}{(bits.Count > 0 ? $", with {bits.Count} bit(s) of its LEGO texture page" : "")}), on {Path.GetFileName(basePath)}'s skeleton with {Stem(donor.Path)}'s material {donor.Material}.");
             notes.Add($"Written beside it: {outBase}.NXG_TEXTURES, {outBase}.PC_SHADERS{(res != null ? $", {outBase}.GHG.RES" : "")}{(shaderList != null ? $", {outStem}.SHADERS" : "")}.");
             int mask = PartTransplant.LayerMask(target);
             notes.Add($"For the game to use it, the part's .CD (Flux) loads {outStem} (name the .CD {outStem} too), with Default Layers, and the Cutscene, Hat, Hair, Cape and Christmas Hat Layers, set to {mask}. A character's attachment then names it as its Resource File, with Tint Colour white.");
@@ -449,11 +452,12 @@ namespace Diorama.Editor
         /// The packed texture, block by block: each cell's texture copied as it is (all of them compressed the same way),
         /// the page bits copied into the spare cell, white elsewhere, at every mip level down to 1x1.
         /// </summary>
-        static void PackedTexture(NuTexture into, NuTexture[] textures, List<int> cells, NuTexture first, NuTexture? page, List<Bit> bits, int perSide, int blockBytes)
+        static void PackedTexture(NuTexture into, NuTexture[] textures, List<int> cells, uint fourCC, NuTexture template, NuTexture? page, List<Bit> bits, int perSide, int blockBytes)
         {
             int size = perSide * Cell, levels = (int)Math.Log2(size) + 1;
             var white = WhiteBlock(blockBytes);
-            var tail = first.Data.AsSpan(first.Data.Length - blockBytes, blockBytes).ToArray(); // the first texture's 1x1, for the smallest levels
+            // the first texture's 1x1, for the levels where the cells are smaller than a block
+            var tail = cells.Count > 0 ? textures[cells[0]].Data.AsSpan(textures[cells[0]].Data.Length - blockBytes, blockBytes).ToArray() : white;
             var data = new List<byte>();
             for (int l = 0; l < levels; l++)
             {
@@ -480,11 +484,11 @@ namespace Diorama.Editor
                         data.AddRange(page.Data.AsSpan(Offset(page.Width, l, blockBytes) + (sy * pb + sx) * blockBytes, blockBytes).ToArray());
                     }
             }
-            into.ImageHeader = DdsHeader(first.ImageHeader, size, size, levels, Math.Max(1, size / 4) * Math.Max(1, size / 4) * blockBytes, null);
+            into.ImageHeader = DdsHeader(template.ImageHeader, size, size, levels, Math.Max(1, size / 4) * Math.Max(1, size / 4) * blockBytes, fourCC);
             into.Data = data.ToArray();
             into.Width = into.Height = size;
             into.MipCount = levels;
-            into.FourCC = first.FourCC;
+            into.FourCC = fourCC;
             into.Header.Level = (uint)levels;
         }
 

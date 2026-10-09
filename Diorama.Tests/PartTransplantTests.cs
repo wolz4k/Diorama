@@ -162,6 +162,29 @@ namespace Diorama.Tests
                     Assert.IsTrue((mesh.SkinMtxMap?.Count ?? 0) <= 27, "a mesh's joint map holds 27");
         }
 
+        /// <summary>
+        /// The Blaster backpack has no texture of its own (vertex colours) and pieces hung on a joint without weights,
+        /// which would fold away when skinned: they move with the backpack's joint. Tried in game on a copy of a SWAT
+        /// officer: shows in its colours (the gun in its rest pose, as Avengers' animations don't come along).
+        /// </summary>
+        [TestMethod]
+        public void PlainPartWithRigidPieces()
+        {
+            string source = Path.Combine(Other, @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT\BACKPACK_BLASTER_DX11.GHG");
+            string basepart = Path.Combine(Game, @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT\BACKPACK_BEDROLL_DX11.GHG");
+            if (!File.Exists(source) || !File.Exists(basepart)) Assert.Inconclusive("needs both games");
+            string dir = Path.Combine(Path.GetTempPath(), "DioramaPartImport", @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT");
+            Directory.CreateDirectory(dir);
+            string output = Path.Combine(dir, "BACKPACK_BLASTER_DX11.GHG");
+            var notes = PartImport.Build(source, basepart, output);
+            foreach (var n in notes) Console.WriteLine(n);
+            StringAssert.Contains(notes[0], "none of its own");
+            Assert.IsTrue(notes.Any(n => n.Contains("weren't weighted")));
+            foreach (var (mesh, _, breakup) in PartTransplant.MeshesOf(Load(output), 0))
+                if (!breakup)
+                    Assert.IsTrue(OBJConverter.ReadVertices(mesh).All(v => v.BlendWeights.X + v.BlendWeights.Y + v.BlendWeights.Z + v.BlendWeights.W > 0.5f), "every vertex weighted");
+        }
+
         /// <summary>The game's resource-header files read and write back unchanged, and renaming keeps every file listed.</summary>
         [TestMethod]
         public void ResourceFilesRename()

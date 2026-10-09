@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 
 namespace Diorama.Editor
 {
@@ -85,6 +86,8 @@ namespace Diorama.Editor
             var done = new HashSet<NuRenderMesh>();
             var all = target.MeshSceneBlock.Meshes;
             var usedMissing = new HashSet<string>();
+            int rigid = 0;
+            string? rigidJoint = null;
 
             for (int lod = 0; lod < target.CharacterData.Count; lod++)
             {
@@ -117,6 +120,23 @@ namespace Diorama.Editor
                     triangles.AddRange(OBJConverter.ReadIndices(mesh).Select(i => i + start));
                 }
                 float[] Weights(Vertex v) => new[] { v.BlendWeights.X, v.BlendWeights.Y, v.BlendWeights.Z, v.BlendWeights.W };
+
+                // Rigid pieces (no weights: the other game hangs them on a joint by a transform) would fold away when
+                // skinned, so they go wholly on the joint the rest of the part mostly moves with.
+                var weighted = Enumerable.Range(0, vertices.Count).Where(i => Weights(vertices[i]).Any(w => w > 0)).ToList();
+                if (weighted.Count < vertices.Count)
+                {
+                    int common = weighted.Count == 0 ? jointMap[0].Joint
+                        : weighted.GroupBy(i => joints[i][Array.IndexOf(Weights(vertices[i]), Weights(vertices[i]).Max())]).OrderByDescending(g => g.Count()).First().Key;
+                    for (int i = 0; i < vertices.Count; i++)
+                        if (!Weights(vertices[i]).Any(w => w > 0))
+                        {
+                            vertices[i].BlendWeights = new Vector4(1, 0, 0, 0);
+                            joints[i] = new[] { common, common, common, common };
+                        }
+                    rigid += vertices.Count - weighted.Count;
+                    rigidJoint = target.CharacterData[0].JointData[common].Name;
+                }
                 IEnumerable<int> Uses(int vertex) => joints[vertex].Where((j, k) => Weights(vertices[vertex])[k] > 0 || k == 0);
 
                 // A mesh's joint map holds a fixed number of joints (27 in this game, padded with 255), so the triangles are
@@ -182,6 +202,8 @@ namespace Diorama.Editor
                 throw new InvalidDataException("Neither model has character geometry to move (no LOD draws a mesh).");
 
             notes.Insert(0, $"Moved the other model's geometry into this one: shape, UVs, vertex colours and bone weights; this model's materials and shaders, so the game can draw it.");
+            if (rigid > 0)
+                notes.Add($"{rigid:N0} vertices weren't weighted to any joint (the other game hangs those pieces on one by a transform); they now move with {rigidJoint}.");
             if (usedMissing.Count > 0)
                 notes.Add($"Warning: this model's skeleton has no joint named {string.Join(", ", usedMissing.Order())}, so those parts hold still on the joint named instead of moving on their own. Pick a model of the same kind (wings for wings).");
             else if (missing.Count > 1 && missing.Count == sourceJoints.Count)
