@@ -121,6 +121,23 @@ namespace Diorama.Tests
             }
         }
 
+        /// <summary>
+        /// Peggy Carter's hair (hat and hair) on Aquaman's long hair: its top joint is named after the part
+        /// (SkinnedHair_PeggyCarter, not HairRoot) and is matched anyway. Tried in game on a copy of Sea King.
+        /// </summary>
+        [TestMethod]
+        public void HairWhoseTopJointIsNamedAfterIt()
+        {
+            string source = Path.Combine(Other, @"CHARS\SUPER_CHARACTER\SKINNEDHAIR\SKINNEDHAIR_PEGGYCARTER_DX11.GHG");
+            string basepart = Path.Combine(Game, @"CHARS\SUPER_CHARACTER\SKINNEDHAIR\SKINNEDHAIR_AQUAMAN_LONG_DX11.GHG");
+            if (!File.Exists(source) || !File.Exists(basepart)) Assert.Inconclusive("needs both games");
+            string dir = Path.Combine(Path.GetTempPath(), "DioramaPartImport", @"CHARS\SUPER_CHARACTER\SKINNEDHAIR");
+            Directory.CreateDirectory(dir);
+            var notes = PartImport.Build(source, basepart, Path.Combine(dir, "SKINNEDHAIR_PEGGYCARTER_DX11.GHG"));
+            foreach (var n in notes) Console.WriteLine(n);
+            Assert.IsFalse(notes.Any(n => n.StartsWith("Warning")), "every joint should be matched");
+        }
+
         /// <summary>The game's resource-header files read and write back unchanged, and renaming keeps every file listed.</summary>
         [TestMethod]
         public void ResourceFilesRename()

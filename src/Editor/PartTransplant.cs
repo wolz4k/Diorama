@@ -79,6 +79,7 @@ namespace Diorama.Editor
             var targetJoints = target.CharacterData[0].JointData.Select(j => j.Name ?? "").ToList();
             var sourceJoints = source.CharacterData[0].JointData.Select(j => j.Name ?? "").ToList();
             var missing = sourceJoints.Where(n => !targetJoints.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
+            var jointMap = MapJoints(source.CharacterData[0].JointData, target.CharacterData[0].JointData);
 
             var notes = new List<string>();
             var done = new HashSet<NuRenderMesh>();
@@ -103,9 +104,8 @@ namespace Diorama.Editor
                         ushort Map(ushort i)
                         {
                             int joint = mesh.SkinMtxMap is { Count: > 0 } map ? map[Math.Min(i, map.Count - 1)] : i;
-                            string name = joint < sourceJoints.Count ? sourceJoints[joint] : "";
-                            int own = targetJoints.FindIndex(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
-                            if (own < 0) { if (name != "") usedMissing.Add(name); own = 0; }
+                            var (own, by) = joint < jointMap.Length ? jointMap[joint] : (0, null);
+                            if (by != null) usedMissing.Add($"{sourceJoints[joint]} (follows {by})");
                             int at = palette.IndexOf((byte)own);
                             if (at < 0) { palette.Add((byte)own); at = palette.Count - 1; }
                             return (ushort)at;
@@ -140,8 +140,8 @@ namespace Diorama.Editor
 
             notes.Insert(0, $"Moved the other model's geometry into this one: shape, UVs, vertex colours and bone weights; this model's materials and shaders, so the game can draw it.");
             if (usedMissing.Count > 0)
-                notes.Add($"Warning: this model's skeleton has no joint named {string.Join(", ", usedMissing)}; vertices on those joints follow its first joint. Pick a model of the same kind (wings for wings).");
-            else if (missing.Count > 0 && missing.Count == sourceJoints.Count)
+                notes.Add($"Warning: this model's skeleton has no joint named {string.Join(", ", usedMissing.Order())}, so those parts hold still on the joint named instead of moving on their own. Pick a model of the same kind (wings for wings).");
+            else if (missing.Count > 1 && missing.Count == sourceJoints.Count)
                 notes.Add("Warning: the two skeletons share no joint names, so the part won't move properly.");
 
             int mask = LayerMask(target), sourceMask = LayerMask(source);
@@ -150,6 +150,30 @@ namespace Diorama.Editor
             notes.Add("Save As a new name for your mod (e.g. the other game's model name, which the part's .CD loads), never over this game's file. Its textures and shaders are copied beside it.");
             notes.Add("Colour: the part shows its vertex colours times the character's Tint Colour for this attachment (Flux). Textures from the other game don't come along.");
             return notes;
+        }
+
+        /// <summary>
+        /// This model's joint for each of the other's: the one with the same name; for the top joint (named after the
+        /// part: Armour_Hulkling, SkinnedHair_PeggyCarter), this model's top joint; otherwise its nearest parent's, which
+        /// is then named (By) for the report.
+        /// </summary>
+        static (int Joint, string? By)[] MapJoints(List<NuJointData> from, List<NuJointData> to)
+        {
+            int top = Math.Max(0, to.FindIndex(j => j.ParentIndex == 255));
+            var map = new (int, string?)[from.Count];
+            var done = new bool[from.Count];
+            (int, string?) Map(int i)
+            {
+                if (done[i]) return map[i];
+                done[i] = true; // a loop in the parents ends here
+                int own = to.FindIndex(j => string.Equals(j.Name, from[i].Name, StringComparison.OrdinalIgnoreCase));
+                if (own >= 0) map[i] = (own, null);
+                else if (from[i].ParentIndex == 255 || from[i].ParentIndex >= from.Count) map[i] = (top, null);
+                else { var (parent, _) = Map(from[i].ParentIndex); map[i] = (parent, to[parent].Name); }
+                return map[i];
+            }
+            for (int i = 0; i < from.Count; i++) Map(i);
+            return map;
         }
 
         /// <summary>A mesh reduced to one invisible triangle, so a part this model had doesn't show.</summary>
