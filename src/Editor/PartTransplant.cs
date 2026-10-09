@@ -50,6 +50,118 @@ namespace Diorama.Editor
             return list;
         }
 
+        /// <summary>A character part's (joints and LODs) rather than a rigid one's (a hat or hair: no joints, a clip object per level of detail).</summary>
+        public static bool IsCharacter(GScene_4F scene) => scene.CharacterData.Count > 0;
+
+        /// <summary>How many levels of detail the part has: a character's LODs, or a rigid part's clip objects (the first the least detailed).</summary>
+        public static int Levels(GScene_4F scene) => IsCharacter(scene) ? scene.CharacterData.Count : scene.DisplayScene.ClipObjects.Count;
+
+        /// <summary>The meshes a level draws, with their materials: a character LOD's (<see cref="MeshesOf"/>) or a rigid part's clip object's.</summary>
+        public static List<(NuRenderMesh Mesh, int Material, bool Breakup)> Drawn(GScene_4F scene, int level)
+        {
+            if (IsCharacter(scene)) return MeshesOf(scene, level);
+            var list = new List<(NuRenderMesh, int, bool)>();
+            var display = scene.DisplayScene;
+            var meshes = scene.MeshSceneBlock.Meshes;
+            if (level < 0 || level >= display.ClipObjects.Count) return list;
+            foreach (var el in display.ClipObjects[level].Elements)
+            {
+                if (display.DisplayItems is { Count: > 0 } items)
+                {
+                    if (el.OldGeometryIndex >= 0 && el.OldGeometryIndex < items.Count && items[el.OldGeometryIndex].Command == DisplayCommand.Mesh && items[el.OldGeometryIndex].Index < meshes.Length)
+                        list.Add((meshes[items[el.OldGeometryIndex].Index], el.OldMaterialIndex, false));
+                }
+                else if (el.MeshIndex >= 0 && el.MeshIndex < meshes.Length)
+                    list.Add((meshes[el.MeshIndex], el.MaterialIndex, false));
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Replaces a rigid part's geometry (a hat's, hair's) with another rigid part's, level by level (a level the source
+        /// lacks takes its last one): each level's first mesh gets the source's solid pieces, its other meshes are emptied,
+        /// and pieces drawn with a material in <paramref name="separate"/> go into a mesh of their own drawn with
+        /// <paramref name="separateMaterial"/>. The part's bounds are refreshed, as the game culls by them.
+        /// </summary>
+        public static List<string> TransplantRigid(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1, Func<NuRenderMesh, Vertex[]>? read = null)
+        {
+            var changedMeshes = new List<NuRenderMesh>();
+            changed = changedMeshes;
+            var notes = new List<string>();
+            var done = new HashSet<NuRenderMesh>();
+            var display = target.DisplayScene;
+            var everything = new List<Vector3>();
+            int sourceLevels = Levels(source);
+            if (sourceLevels == 0) throw new InvalidDataException("The other part draws nothing.");
+            for (int level = 0; level < Levels(target); level++)
+            {
+                var from = Drawn(source, Math.Min(level, sourceLevels - 1));
+                var own = Drawn(target, level).Select(m => m.Mesh).Distinct().Where(m => !done.Contains(m)).ToList();
+                if (own.Count == 0 || from.Count == 0) continue;
+                var solid = new List<Vertex>();
+                var solidIndices = new List<ushort>();
+                var clear = new List<Vertex>();
+                var clearIndices = new List<ushort>();
+                foreach (var (mesh, material, _) in from.DistinctBy(m => m.Mesh))
+                {
+                    bool apart = separate != null && separateMaterial >= 0 && separate.Contains(material);
+                    var (into, indices) = apart ? (clear, clearIndices) : (solid, solidIndices);
+                    int start = into.Count;
+                    into.AddRange((read ?? OBJConverter.ReadVertices)(mesh).Select(Moved));
+                    indices.AddRange(OBJConverter.ReadIndices(mesh).Select(i => (ushort)(i + start)));
+                }
+                if (solid.Count > ushort.MaxValue || clear.Count > ushort.MaxValue)
+                    throw new InvalidDataException($"Level {level} has {Math.Max(solid.Count, clear.Count):N0} vertices in one mesh, more than one mesh can hold (65,535).");
+                everything.AddRange(solid.Concat(clear).Select(v => v.Position));
+
+                var all = target.MeshSceneBlock.Meshes;
+                var sample = solid.Concat(clear).First();
+                if (solid.Count > 0)
+                {
+                    OBJConverter.SetMeshData(own[0], solid, solidIndices.ToArray(), all);
+                    changedMeshes.Add(own[0]);
+                }
+                else Empty(own[0], sample, all);
+                done.Add(own[0]);
+                foreach (var extra in own.Skip(1))
+                {
+                    Empty(extra, sample, all);
+                    changedMeshes.Add(extra);
+                    done.Add(extra);
+                }
+                if (clear.Count > 0)
+                {
+                    var clip = display.ClipObjects[level];
+                    int ownIndex = Array.IndexOf(all, own[0]);
+                    var element = clip.Elements.First(e => e.MeshIndex == ownIndex);
+                    var mesh = MeshLike(own[0]);
+                    target.MeshSceneBlock.Meshes = all.Append(mesh).ToArray();
+                    OBJConverter.SetMeshData(mesh, clear, clearIndices.ToArray(), null);
+                    var added = CopyElement(element);
+                    added.MeshIndex = (short)(target.MeshSceneBlock.Meshes.Length - 1);
+                    added.MaterialIndex = (short)separateMaterial;
+                    clip.Elements = clip.Elements.Append(added).ToArray();
+                    changedMeshes.Add(mesh);
+                    done.Add(mesh);
+                }
+                notes.Add($"Level {level}: {from.Count} piece{(from.Count == 1 ? "" : "s")} of {solid.Count + clear.Count:N0} vertices and {(solidIndices.Count + clearIndices.Count) / 3:N0} triangles{(clear.Count > 0 ? $" ({clearIndices.Count / 3:N0} see-through, in a mesh of their own)" : "")}.");
+            }
+            if (changedMeshes.Count == 0) throw new InvalidDataException("Neither model has geometry to move.");
+
+            // the game culls a part by its special object's box and sphere
+            var min = new Vector3(everything.Min(p => p.X), everything.Min(p => p.Y), everything.Min(p => p.Z));
+            var max = new Vector3(everything.Max(p => p.X), everything.Max(p => p.Y), everything.Max(p => p.Z));
+            var centre = (min + max) / 2;
+            float radius = everything.Max(p => Vector3.Distance(p, centre));
+            foreach (var special in display.SpecialObjects.Where(sp => sp.ClipObjectIndex < display.ClipObjects.Count))
+            {
+                special.Min = new Vector4(min, 1);
+                special.Max = new Vector4(max, 1);
+                special.Sphere = new Vector4(centre, radius);
+            }
+            return notes;
+        }
+
         /// <summary>The layer a character model draws its parts on (bit mask, as a part's .CD "Default Layers" names it), or 0.</summary>
         public static int LayerMask(GScene_4F scene)
         {
@@ -70,8 +182,9 @@ namespace Diorama.Editor
         /// meshes and the breakup parts are emptied, so nothing of the old part shows. Returns notes for the modder and
         /// the meshes changed (to redraw). The source's meshes drawn with a material in <paramref name="separate"/> (see-through
         /// ones) go into meshes of their own, added to the model and drawn with <paramref name="separateMaterial"/>.
+        /// <paramref name="read"/> gives the source's vertices (with UVs already moved, say), in place of reading its meshes.
         /// </summary>
-        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1)
+        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1, Func<NuRenderMesh, Vertex[]>? read = null)
         {
             var changedMeshes = new List<NuRenderMesh>();
             changed = changedMeshes;
@@ -111,7 +224,7 @@ namespace Diorama.Editor
                 {
                     int start = vertices.Count;
                     var into = apart.Contains(mesh) ? clear : triangles;
-                    foreach (var v in OBJConverter.ReadVertices(mesh))
+                    foreach (var v in (read ?? OBJConverter.ReadVertices)(mesh))
                     {
                         int Joint(ushort i)
                         {
@@ -176,7 +289,7 @@ namespace Diorama.Editor
                     {
                         if (!local.TryGetValue(vertex, out var at))
                         {
-                            var v = Copy(vertices[vertex]);
+                            var v = Moved(vertices[vertex]);
                             var w = Weights(v);
                             ushort Slot(int k) => room > 0 ? (ushort)Math.Max(0, w[k] > 0 || k == 0 ? palette.IndexOf(joints[vertex][k]) : 0) : (ushort)joints[vertex][k];
                             v.BlendIndices = new VectorI4(Slot(0), Slot(1), Slot(2), Slot(3));
@@ -309,6 +422,19 @@ namespace Diorama.Editor
             CentreExtents = (System.Numerics.Vector4[])like.CentreExtents.Clone(),
             DensityDiscDiameter = like.DensityDiscDiameter,
         };
+
+        /// <summary>
+        /// A source vertex to write into this model, its colour bytes kept as the other game stored them (the game wants
+        /// them so): vertices are read in stored order but written with red and blue swapped (VertexList holds colours as
+        /// RGBA, for OBJ import), so they're swapped here first. Tried in game: Iron Man's helmet and the Blaster's lens
+        /// came out blue, not red, otherwise.
+        /// </summary>
+        static Vertex Moved(Vertex v)
+        {
+            var copy = Copy(v);
+            copy.ColorSet0 = new Vector4(v.ColorSet0.Z, v.ColorSet0.Y, v.ColorSet0.X, v.ColorSet0.W);
+            return copy;
+        }
 
         static Vertex Copy(Vertex v) => new Vertex
         {

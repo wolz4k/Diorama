@@ -55,10 +55,15 @@ namespace Diorama.Editor
         {
             var source = Load(sourcePath);
             var target = Load(basePath);
+            bool character = PartTransplant.IsCharacter(target);
+            if (PartTransplant.IsCharacter(source) != character)
+                throw new InvalidDataException(character
+                    ? $"{Path.GetFileName(sourcePath)} is a rigid part (a hat or hair, no joints), and {Path.GetFileName(basePath)} a character part; build on one of this game's rigid parts (CHARS\\SUPER_CHARACTER\\HAT or HAIR, .GSC)."
+                    : $"{Path.GetFileName(sourcePath)} is a character part (with joints), and {Path.GetFileName(basePath)} a rigid one; build on one of this game's character parts of the same kind (.GHG).");
             string gameRoot = GameRootOf(basePath) ?? throw new InvalidDataException("The part to build on should be in this game's CHARS folder, so its material can be found.");
             // the materials the part's own meshes are drawn with (not its breakup pieces), and their automatic variants;
             // the rest (blend-shape and rigid variants, breakup materials) stay as they are, with their textures
-            var used = Enumerable.Range(0, target.CharacterData.Count).SelectMany(lod => PartTransplant.MeshesOf(target, lod))
+            var used = Enumerable.Range(0, PartTransplant.Levels(target)).SelectMany(level => PartTransplant.Drawn(target, level))
                 .Where(m => !m.Breakup).Select(m => m.Material).Where(i => i >= 0 && i < target.MaterialBlock.Materials.Length && target.MaterialBlock.Materials[i] != null).ToHashSet();
             if (used.Count == 0) throw new InvalidDataException($"{Path.GetFileName(basePath)} draws no meshes of its own to build on.");
             var main = target.MaterialBlock.Materials[used.Min()];
@@ -144,7 +149,8 @@ namespace Diorama.Editor
             int cell = Math.Max(Cell, cells.Select(c => Pow2(Math.Max(sourceTex[c].Width * tiles[c].U, sourceTex[c].Height * tiles[c].V))).DefaultIfEmpty(Cell).Max());
             int perSide = 0;
             // a texture that doesn't fill its cell leaves its corner white, so without page bits no spare cell is needed
-            int roomy = cells.FindIndex(c => sourceTex[c].Width * tiles[c].U <= cell - Align || sourceTex[c].Height * tiles[c].V <= cell - Align);
+            // (tiny swatches, like the LEGO colour textures, are repeated over their whole cell instead: see PackedTexture)
+            int roomy = cells.FindIndex(c => !Tiny(sourceTex[c], tiles[c]) && (sourceTex[c].Width * tiles[c].U <= cell - Align || sourceTex[c].Height * tiles[c].V <= cell - Align));
             int needed = bits.Count == 0 && roomy >= 0 ? cells.Count : cells.Count + 1;
             for (int side = 1; side * cell <= MaxSize && perSide == 0; side *= 2)
                 if (side * side >= needed && (bits.Count == 0 || side * side > cells.Count) && PackBits(bits, Enumerable.Range(cells.Count, side * side - cells.Count).Select(i => (i % side * cell, i / side * cell)).ToList(), cell))
@@ -167,6 +173,7 @@ namespace Diorama.Editor
             Vector2 white = new((spareX + cell - 6) / (float)size, (spareY + cell - 6) / (float)size);
 
             // UVs into the packed texture
+            var remapped = new Dictionary<NuRenderMesh, Vertex[]>();
             int clamped = 0;
             foreach (var (mesh, material) in Meshes(source))
             {
@@ -193,14 +200,14 @@ namespace Diorama.Editor
                     else uv = white;
                     v.UVSet01 = new Vector4(uv.X, uv.Y, v.UVSet01.Z, v.UVSet01.W);
                 }
-                OBJConverter.SetMeshData(mesh, vertices, OBJConverter.ReadIndices(mesh), source.MeshSceneBlock.Meshes);
+                remapped[mesh] = vertices; // kept here: a mesh laid out without UVs would drop them if written back
             }
             if (clamped > 0) notes.Add($"{clamped:N0} vertices had UVs further out than their texture's repeats; they're held at its edge, so check those spots.");
 
             // See-through pieces (blending materials) need a blending material of this game's, on meshes of their own; it's
             // added after the model's materials. Without one for this layout they're drawn solid.
             var block = target.MaterialBlock;
-            var drawnSource = Enumerable.Range(0, source.CharacterData.Count).SelectMany(lod => PartTransplant.MeshesOf(source, lod)).Where(m => !m.Breakup).Select(m => m.Material).ToHashSet();
+            var drawnSource = Enumerable.Range(0, PartTransplant.Levels(source)).SelectMany(level => PartTransplant.Drawn(source, level)).Where(m => !m.Breakup).Select(m => m.Material).ToHashSet();
             var seeThrough = drawnSource.Where(i => i >= 0 && i < source.MaterialBlock.Materials.Length && source.MaterialBlock.Materials[i]?.blendMode is > 0).ToHashSet();
             Donor? clearDonor = null;
             var donorOf = new Dictionary<NuMaterialData_E0, Donor>();
@@ -223,8 +230,10 @@ namespace Diorama.Editor
             }
 
             // the shape and weights
-            var moved = PartTransplant.Transplant(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot);
-            notes.AddRange(moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Warning") || n.Contains("weren't weighted")));
+            var moved = character
+                ? PartTransplant.Transplant(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot, m => remapped.TryGetValue(m, out var v) ? v : OBJConverter.ReadVertices(m))
+                : PartTransplant.TransplantRigid(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot, m => remapped.TryGetValue(m, out var v) ? v : OBJConverter.ReadVertices(m));
+            notes.AddRange(moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Level") || n.StartsWith("Warning") || n.Contains("weren't weighted")));
 
             // the material, on the slots the part is drawn with (its variant on the variant slots)
             var children = block.Materials.Select(m => (m as NuMaterialData_E0)?.ChildMaterial?.MaterialName).ToList();
@@ -261,7 +270,7 @@ namespace Diorama.Editor
             var headers = nxg.TextureSet.Textures.Select(t => t.Header).ToList();
             var diffuse = new NuTexture { Header = Header(headers.ElementAtOrDefault(0), diffName) };
             var normal = new NuTexture { Header = Header(headers.ElementAtOrDefault(1) ?? headers.ElementAtOrDefault(0), nrmName) };
-            PackedTexture(diffuse, sourceTex, cells, cells.Select(c => (tiles[c].U, tiles[c].V)).ToList(), fourCC, template, page, bits, perSide, cell, blockBytes);
+            PackedTexture(diffuse, sourceTex, cells, cells.Select(c => Tiny(sourceTex[c], tiles[c]) ? (int.MaxValue, int.MaxValue) : (tiles[c].U, tiles[c].V)).ToList(), fourCC, template, page, bits, perSide, cell, blockBytes);
             FlatNormal(normal, template);
             bool withNormal = donorOf.Values.Any(d => d.Normal != null);
             var made = withNormal ? new[] { diffuse, normal } : new[] { diffuse };
@@ -326,7 +335,8 @@ namespace Diorama.Editor
             }
             var shaderBytes = new MemoryStream();
             using (var output = new RawFile(shaderBytes)) shaders.Handle(new SchemaSerializer(output, true), 0);
-            byte[]? res = RenamedResourceFile(Path.ChangeExtension(basePath, ".GHG.RES"), Rename);
+            string ext = Path.GetExtension(basePath).ToUpperInvariant(); // .GHG or .GSC
+            byte[]? res = RenamedResourceFile(Path.ChangeExtension(basePath, ext + ".RES"), Rename);
             string baseShaderList = Path.Combine(Path.GetDirectoryName(basePath) ?? "", baseStem + ".SHADERS");
             byte[]? shaderList = RenamedResourceFile(baseShaderList, Rename);
 
@@ -335,11 +345,18 @@ namespace Diorama.Editor
             File.WriteAllBytes(outPath, model.ToArray());
             File.WriteAllBytes(Path.Combine(folder, outBase + ".NXG_TEXTURES"), textureBytes);
             File.WriteAllBytes(Path.Combine(folder, outBase + ".PC_SHADERS"), shaderBytes.ToArray());
-            if (res != null) File.WriteAllBytes(Path.Combine(folder, outBase + ".GHG.RES"), res);
+            if (res != null) File.WriteAllBytes(Path.Combine(folder, outBase + ext + ".RES"), res);
             if (shaderList != null) File.WriteAllBytes(Path.Combine(folder, outStem + ".SHADERS"), shaderList);
 
-            notes.Insert(0, $"Made {Path.GetFileName(outPath)} from {Path.GetFileName(sourcePath)}: its shape, bone weights and textures ({(cells.Count == 0 ? "none of its own: plain colour" : cells.Count + " packed")} into one {size}x{size}{(bits.Count > 0 ? $", with {bits.Count} bit(s) of its LEGO texture page" : "")}), on {Path.GetFileName(basePath)}'s skeleton with {Stem(donor.Path)}'s material {donor.Material}.");
-            notes.Add($"Written beside it: {outBase}.NXG_TEXTURES, {outBase}.PC_SHADERS{(res != null ? $", {outBase}.GHG.RES" : "")}{(shaderList != null ? $", {outStem}.SHADERS" : "")}.");
+            notes.Insert(0, $"Made {Path.GetFileName(outPath)} from {Path.GetFileName(sourcePath)}: its shape{(character ? ", bone weights" : "")} and textures ({(cells.Count == 0 ? "none of its own: plain colour" : cells.Count + " packed")} into one {size}x{size}{(bits.Count > 0 ? $", with {bits.Count} bit(s) of its LEGO texture page" : "")}), {(character ? $"on {Path.GetFileName(basePath)}'s skeleton" : $"in place of {Path.GetFileName(basePath)}'s")} with {Stem(donor.Path)}'s material {donor.Material}.");
+            notes.Add($"Written beside it: {outBase}.NXG_TEXTURES, {outBase}.PC_SHADERS{(res != null ? $", {outBase}{ext}.RES" : "")}{(shaderList != null ? $", {outStem}.SHADERS" : "")}.");
+            if (!character)
+            {
+                string special = target.DisplayScene.SpecialObjects.FirstOrDefault(sp => sp.ClipObjectIndex < target.DisplayScene.ClipObjects.Count)?.Name ?? "";
+                notes.Add($"For the game to use it, a rigid part's .CD (Flux; start from {Path.GetFileName(basePath)}'s, such as RIGIDHAT_... in the same folder) names Scene File {RelativeDir(outPath)?.Replace("chars", "Chars") ?? "Chars\\..."}\\{outStem} and Scene Object {special} (the object inside it, kept from {Path.GetFileName(basePath)}). A character's attachment then names that .CD as its Resource File, with Tint Colour white.");
+                notes.Add("Parts with no texture of their own keep their vertex colours (times the attachment's Tint Colour); metallic or bumpy finishes from the other game don't come along.");
+                return notes;
+            }
             int mask = PartTransplant.LayerMask(target);
             notes.Add($"For the game to use it, the part's .CD (Flux) loads {outStem} (name the .CD {outStem} too), with Default Layers, and the Cutscene, Hat, Hair, Cape and Christmas Hat Layers, set to {mask}. A character's attachment then names it as its Resource File, with Tint Colour white.");
             notes.Add("Parts with no texture of their own keep their vertex colours (times the attachment's Tint Colour); metallic or bumpy finishes from the other game don't come along.");
@@ -359,7 +376,7 @@ namespace Diorama.Editor
             Donor? found = null, withoutNormal = null;
             string first = Path.Combine(gameRoot, DonorScene);
             static bool IsFace(string f) => f.Contains(@"\FACE", StringComparison.OrdinalIgnoreCase) || f.Contains(@"\SUPER_FACE", StringComparison.OrdinalIgnoreCase);
-            var files = new[] { first }.Concat(Directory.EnumerateFiles(Path.Combine(gameRoot, "CHARS", "SUPER_CHARACTER"), "*_DX11.GHG", SearchOption.AllDirectories)
+            var files = new[] { first }.Concat(Directory.EnumerateFiles(Path.Combine(gameRoot, "CHARS", "SUPER_CHARACTER"), "*_DX11.G*", SearchOption.AllDirectories).Where(f => f.EndsWith(".GHG", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".GSC", StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(f => string.Equals(Path.GetDirectoryName(f), folder, StringComparison.OrdinalIgnoreCase)).ThenBy(IsFace).ThenBy(f => f));
             foreach (var file in files)
             {
@@ -396,7 +413,7 @@ namespace Diorama.Editor
         static GScene_4F Load(string path)
         {
             if (GScene.Parse(path) is not GScene_4F scene) throw new InvalidDataException($"{Path.GetFileName(path)} isn't a scene Diorama can read.");
-            if (scene.CharacterData.Count == 0) throw new InvalidDataException($"{Path.GetFileName(path)} isn't a character part (no joints or LODs).");
+            if (PartTransplant.Levels(scene) == 0) throw new InvalidDataException($"{Path.GetFileName(path)} draws nothing to build with.");
             return scene;
         }
 
@@ -429,8 +446,8 @@ namespace Diorama.Editor
         {
             var seen = new HashSet<NuRenderMesh>();
             var list = new List<(NuRenderMesh, int)>();
-            for (int lod = 0; lod < scene.CharacterData.Count; lod++)
-                foreach (var (mesh, material, _) in PartTransplant.MeshesOf(scene, lod))
+            for (int level = 0; level < PartTransplant.Levels(scene); level++)
+                foreach (var (mesh, material, _) in PartTransplant.Drawn(scene, level))
                     if (seen.Add(mesh)) list.Add((mesh, material));
             return list;
         }
@@ -499,6 +516,12 @@ namespace Diorama.Editor
             return true;
         }
 
+        /// <summary>
+        /// A texture so small (a LEGO colour swatch, 8x8) that its cell would be mostly white at lower mip levels: it's
+        /// repeated over the whole cell instead, so every level shows its colour.
+        /// </summary>
+        static bool Tiny(NuTexture t, (int U0, int V0, int U, int V) tiles) => t.Width * tiles.U < 64 || t.Height * tiles.V < 64;
+
         /// <summary>A texture header like <paramref name="like"/> (this game's), under a new name and checksum.</summary>
         static NuTexGenHdr Header(NuTexGenHdr? like, string name)
         {
@@ -545,7 +568,9 @@ namespace Diorama.Editor
                         {
                             var t = textures[cells[cell]];
                             int tw = (t.Width >> l) / 4, th = (t.Height >> l) / 4;
-                            if (tw == 0 || th == 0 || l >= t.MipCount || lx >= tw * repeats[cell].U || ly >= th * repeats[cell].V) { data.AddRange(white); continue; }
+                            if ((long)lx >= (long)Math.Max(tw, 1) * repeats[cell].U || (long)ly >= (long)Math.Max(th, 1) * repeats[cell].V) { data.AddRange(white); continue; }
+                            // a level the texture doesn't have (smaller than a block): its smallest stored block, its average colour
+                            if (tw == 0 || th == 0 || l >= t.MipCount) { data.AddRange(t.Data.AsSpan(t.Data.Length - blockBytes, blockBytes).ToArray()); continue; }
                             data.AddRange(t.Data.AsSpan(Offset(t.Width, t.Height, l, blockBytes) + (ly % th * tw + lx % tw) * blockBytes, blockBytes).ToArray());
                             continue;
                         }

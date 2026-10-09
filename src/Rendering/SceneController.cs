@@ -362,13 +362,16 @@ namespace Diorama.Rendering
             TransplantPartCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
             {
                 if (sender == null) return;
-                if (sender.OriginalScene is not GScene_4F target || target.CharacterData.Count == 0)
+                if (sender.OriginalScene is not GScene_4F target || PartTransplant.Levels(target) == 0)
                 {
-                    ShowMessageDialog("Bring in a part from another game", ["Open one of this game's character parts first (for wings, CHARS\\SUPER_CHARACTER\\WINGS_FEATHER\\WINGS_FEATHER_DX11.GHG), then pick the other game's part of the same kind."]);
+                    ShowMessageDialog("Bring in a part from another game", ["Open one of this game's parts first: a character part (for wings, CHARS\\SUPER_CHARACTER\\WINGS_FEATHER\\WINGS_FEATHER_DX11.GHG) or a rigid one (a hat, CHARS\\SUPER_CHARACTER\\HAT\\HAT_ARES_DX11.GSC), then pick the other game's part of the same kind."]);
                     return;
                 }
+                // a character part (.GHG: joints and LODs) takes another character part; a rigid one (.GSC: a hat, hair) another rigid one
+                bool rigid = !PartTransplant.IsCharacter(target);
+                string kind = rigid ? "gsc" : "ghg";
 
-                string? inputPath = await MainWindow?.OpenFileMenu("Part from another game (.GHG)", "ghg");
+                string? inputPath = await MainWindow?.OpenFileMenu($"Part from another game (.{kind.ToUpperInvariant()})", kind);
                 if (inputPath == null) return;
 
                 // With its textures, it becomes a new part beside this one's files (in your mod's CHARS folder, so the
@@ -377,7 +380,7 @@ namespace Diorama.Rendering
                 string? withTextures = null;
                 if (File.Exists(Path.ChangeExtension(inputPath, ".NXG_TEXTURES")) && File.Exists(basePath))
                 {
-                    withTextures = await MainWindow?.OpenSaveMenu("Save the new part (with its textures) as - in your mod's CHARS folder", "ghg", Path.GetFileName(inputPath));
+                    withTextures = await MainWindow?.OpenSaveMenu("Save the new part (with its textures) as - in your mod's CHARS folder", kind, Path.GetFileName(inputPath));
                     if (withTextures == null) return;
                     if (string.Equals(Path.GetFullPath(withTextures), Path.GetFullPath(basePath), StringComparison.OrdinalIgnoreCase)
                         || string.Equals(Path.GetFullPath(withTextures), Path.GetFullPath(inputPath), StringComparison.OrdinalIgnoreCase))
@@ -400,7 +403,8 @@ namespace Diorama.Rendering
                         });
                         return;
                     }
-                    catch (Exception ex) when (ex is InvalidDataException || ex is FileNotFoundException)
+                    // (a rigid part has no shape-only fallback: its error is shown below)
+                    catch (Exception ex) when ((ex is InvalidDataException || ex is FileNotFoundException) && !rigid)
                     {
                         textureProblem = ex.Message;
                     }

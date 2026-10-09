@@ -209,6 +209,33 @@ namespace Diorama.Tests
             Assert.AreEqual(12, packed.MipCount);
         }
 
+        /// <summary>
+        /// Iron Man's helmet, a rigid part (.GSC, no joints), on Ares' helmet. Its red pieces are vertex-coloured: their
+        /// bytes stay as stored. Its gold is an 8x8 swatch, repeated over its cell. Tried in game on a copy of Hawkman:
+        /// red, with a gold faceplate.
+        /// </summary>
+        [TestMethod]
+        public void RigidHelmet()
+        {
+            string source = Path.Combine(Other, @"CHARS\SUPER_CHARACTER\HAT\HAT_IRONMAN_DX11.GSC");
+            string basepart = Path.Combine(Game, @"CHARS\SUPER_CHARACTER\HAT\HAT_ARES_DX11.GSC");
+            if (!File.Exists(source) || !File.Exists(basepart)) Assert.Inconclusive("needs both games");
+            string dir = Path.Combine(Path.GetTempPath(), "DioramaPartImport", @"CHARS\SUPER_CHARACTER\HAT");
+            Directory.CreateDirectory(dir);
+            string output = Path.Combine(dir, "HAT_IRONMAN_DX11.GSC");
+            var notes = PartImport.Build(source, basepart, output);
+            foreach (var n in notes) Console.WriteLine(n);
+            Assert.IsTrue(File.Exists(Path.Combine(dir, "HAT_IRONMAN_DX11.GSC.RES")));
+            var model = Load(output);
+            Assert.AreEqual(0, model.CharacterData.Count);
+            var vertices = PartTransplant.Drawn(model, 0).SelectMany(m => OBJConverter.ReadVertices(m.Mesh)).ToList();
+            // its colour bytes as Avengers stored them (the game reads them the same way: red, not blue)
+            var original = PartTransplant.Drawn(Load(source), 0).Select(m => m.Mesh).Distinct().SelectMany(m => OBJConverter.ReadVertices(m)).ToList();
+            Assert.AreEqual(original.Count(v => v.ColorSet0.Z > v.ColorSet0.X + 0.2f), vertices.Count(v => v.ColorSet0.Z > v.ColorSet0.X + 0.2f), "colour bytes kept as stored");
+            var special = model.DisplayScene.SpecialObjects[0];
+            Assert.IsTrue(vertices.All(v => v.Position.Y >= special.Min.Y - 0.001f && v.Position.Y <= special.Max.Y + 0.001f), "bounds hold the new shape");
+        }
+
         /// <summary>The game's resource-header files read and write back unchanged, and renaming keeps every file listed.</summary>
         [TestMethod]
         public void ResourceFilesRename()
