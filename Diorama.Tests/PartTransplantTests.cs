@@ -185,6 +185,24 @@ namespace Diorama.Tests
                     Assert.IsTrue(OBJConverter.ReadVertices(mesh).All(v => v.BlendWeights.X + v.BlendWeights.Y + v.BlendWeights.Z + v.BlendWeights.W > 0.5f), "every vertex weighted");
         }
 
+        /// <summary>
+        /// Citizen V's armour has a 1024x1024 texture: the cells grow to fit it. Tried in game on a copy of a SWAT officer.
+        /// </summary>
+        [TestMethod]
+        public void BigTexture()
+        {
+            string source = Path.Combine(Other, @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT\ARMOUR_CITIZENV_DX11.GHG");
+            string basepart = Path.Combine(Game, @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT\BACKPACK_BEDROLL_DX11.GHG");
+            if (!File.Exists(source) || !File.Exists(basepart)) Assert.Inconclusive("needs both games");
+            string dir = Path.Combine(Path.GetTempPath(), "DioramaPartImport", @"CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT");
+            Directory.CreateDirectory(dir);
+            var notes = PartImport.Build(source, basepart, Path.Combine(dir, "ARMOUR_CITIZENV_DX11.GHG"));
+            foreach (var n in notes) Console.WriteLine(n);
+            var packed = Diorama.Core.Filetypes.TEXTURES.NxgTextures.Read(Path.Combine(dir, "ARMOUR_CITIZENV_DX11.NXG_TEXTURES")).TextureSet.Textures[0];
+            Assert.AreEqual(2048, packed.Width);
+            Assert.AreEqual(12, packed.MipCount);
+        }
+
         /// <summary>The game's resource-header files read and write back unchanged, and renaming keeps every file listed.</summary>
         [TestMethod]
         public void ResourceFilesRename()

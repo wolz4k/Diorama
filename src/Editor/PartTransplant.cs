@@ -126,7 +126,7 @@ namespace Diorama.Editor
                 var weighted = Enumerable.Range(0, vertices.Count).Where(i => Weights(vertices[i]).Any(w => w > 0)).ToList();
                 if (weighted.Count < vertices.Count)
                 {
-                    int common = weighted.Count == 0 ? jointMap[0].Joint
+                    int common = weighted.Count == 0 ? (jointMap.Length > 0 ? jointMap[0].Joint : Math.Max(0, target.CharacterData[0].JointData.FindIndex(j => j.ParentIndex == 255)))
                         : weighted.GroupBy(i => joints[i][Array.IndexOf(Weights(vertices[i]), Weights(vertices[i]).Max())]).OrderByDescending(g => g.Count()).First().Key;
                     for (int i = 0; i < vertices.Count; i++)
                         if (!Weights(vertices[i]).Any(w => w > 0))
