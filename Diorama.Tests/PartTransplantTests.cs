@@ -186,7 +186,8 @@ namespace Diorama.Tests
         }
 
         /// <summary>
-        /// Citizen V's armour has a 1024x1024 texture: the cells grow to fit it. Tried in game on a copy of a SWAT officer.
+        /// Citizen V's armour has a 1024x1024 texture: the cells grow to fit it. Tried in game on copies of a SWAT officer
+        /// and of Adam Strange (moving with him as he flies). The bedroll's own textures stay in the file, ahead of it.
         /// </summary>
         [TestMethod]
         public void BigTexture()
@@ -198,7 +199,7 @@ namespace Diorama.Tests
             Directory.CreateDirectory(dir);
             var notes = PartImport.Build(source, basepart, Path.Combine(dir, "ARMOUR_CITIZENV_DX11.GHG"));
             foreach (var n in notes) Console.WriteLine(n);
-            var packed = Diorama.Core.Filetypes.TEXTURES.NxgTextures.Read(Path.Combine(dir, "ARMOUR_CITIZENV_DX11.NXG_TEXTURES")).TextureSet.Textures[0];
+            var packed = Diorama.Core.Filetypes.TEXTURES.NxgTextures.Read(Path.Combine(dir, "ARMOUR_CITIZENV_DX11.NXG_TEXTURES")).TextureSet.Textures.Single(t => t.Header.Name.EndsWith("armour_citizenv_diff.nut"));
             Assert.AreEqual(2048, packed.Width);
             Assert.AreEqual(12, packed.MipCount);
         }
