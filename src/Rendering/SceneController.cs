@@ -371,6 +371,46 @@ namespace Diorama.Rendering
                 string? inputPath = await MainWindow?.OpenFileMenu("Part from another game (.GHG)", "ghg");
                 if (inputPath == null) return;
 
+                // With its textures, it becomes a new part beside this one's files (in your mod's CHARS folder, so the
+                // files it names point there); if that can't be done, the shape alone comes into this scene, as before.
+                string basePath = sender.OriginalScene.Path;
+                string? withTextures = null;
+                if (File.Exists(Path.ChangeExtension(inputPath, ".NXG_TEXTURES")) && File.Exists(basePath))
+                {
+                    withTextures = await MainWindow?.OpenSaveMenu("Save the new part (with its textures) as - in your mod's CHARS folder", "ghg", Path.GetFileName(inputPath));
+                    if (withTextures == null) return;
+                    if (string.Equals(Path.GetFullPath(withTextures), Path.GetFullPath(basePath), StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(Path.GetFullPath(withTextures), Path.GetFullPath(inputPath), StringComparison.OrdinalIgnoreCase))
+                    {
+                        ShowMessageDialog("Bring in a part from another game", ["Save the new part under a new name, not over either game's file."]);
+                        return;
+                    }
+                }
+
+                string? textureProblem = null;
+                if (withTextures != null)
+                {
+                    try
+                    {
+                        var made = PartImport.Build(inputPath, basePath, withTextures);
+                        RenderService.Current.Enqueue(() =>
+                        {
+                            AddScene(withTextures);
+                            ShowMessageDialog("Part brought in, with its textures", made.Select(n => "• " + n));
+                        });
+                        return;
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException || ex is FileNotFoundException)
+                    {
+                        textureProblem = ex.Message;
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowMessageDialog("Could not bring in the part", [ex.Message]);
+                        return;
+                    }
+                }
+
                 RenderService.Current.Enqueue(() =>
                 {
                     var snapshot = MeshSnapshot.Take(sender, $"Bring in {Path.GetFileName(inputPath)}");
@@ -387,6 +427,7 @@ namespace Diorama.Rendering
                                 geo.Mesh = mesh;
                         }
                         sender.MeshUndo.Push(snapshot);
+                        if (textureProblem != null) notes.Insert(0, $"Its textures couldn't come along ({textureProblem}), so only its shape came into this scene.");
                         ShowMessageDialog("Part brought in", notes.Select(n => "• " + n));
                     }
                     catch (Exception ex)

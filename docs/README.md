@@ -58,15 +58,19 @@ A game mesh can hold at most 65,536 vertices (after splitting along UV seams and
 
 ### A part from another LEGO game
 
-Models from other games can't simply be copied: LEGO Marvel's Avengers' models are an older version whose materials point at that game's own compiled shaders, so LEGO DC Super-Villains loads them but draws nothing. **Bring In Part from Another Game...** moves the other game's geometry into one of this game's models instead:
+Models from other games can't simply be copied: LEGO Marvel's Avengers' models are an older version whose materials point at that game's own compiled shaders, so LEGO DC Super-Villains loads them but draws nothing. **Bring In Part from Another Game...** rebuilds the other game's part on one of this game's instead:
 
 1. Open this game's part of the same kind, for example `CHARS\SUPER_CHARACTER\WINGS_FEATHER\WINGS_FEATHER_DX11.GHG` for wings.
 2. Right-click the scene, choose **Bring In Part from Another Game...** and pick the other game's part (Avengers' `WINGS_FALCON_AOU_DX11.GHG`).
-3. Each LOD gets the other part's shape, UVs, vertex colours and bone weights (joints are matched by name, so pick a part with the same skeleton); this model keeps its materials and shaders, and its own parts and breakup pieces are emptied. *Undo Mesh Replacement* takes it back.
-4. **Save GScene As...** under the name the part's `.CD` loads (in your mod), never over the game's file.
-5. In the part's `.CD` (Flux), set *Default Layers* and the other *… Layers* to the mask the report names (2 for the feather wings), and give the character's attachment a *Tint Colour*: the part shows its vertex colours times that tint. Its animations come from the part's animation set, which can be this game's one for the same skeleton (`Basic_Wings_Feather`).
+3. Save the new part where your mod keeps it, under the name its `.CD` will load, for example `<mod>\CHARS\SUPER_CHARACTER\TORSO_ATTACHMENT\WINGS_FALCON_AOU_DX11.GHG`. Diorama writes the model with everything beside it and opens it:
+   - the other part's shape, UVs, vertex colours and bone weights, in every LOD (joints are matched by name, so pick a part with the same skeleton);
+   - its colour textures packed into one texture, with any bits of its game's LEGO texture page it uses (moulded holes and the like), on a material of this game's that shows a colour texture;
+   - its `.NXG_TEXTURES`, `.PC_SHADERS`, `.GHG.RES` and `.SHADERS`, all naming the new part's own files in that folder.
+4. Make the part's `.CD` in Flux under the same name (`WINGS_FALCON_AOU.CD`), loading that model, with *Default Layers* and the other *… Layers* set to the mask the report names (2 for the feather wings). Give the character's attachment that *Resource File* and a white *Tint Colour*. Its animations come from the part's animation set, which can be this game's one for the same skeleton (`Basic_Wings_Feather`).
 
-Tried in game: Falcon's wings brought into the feather wings show on Hawkman and move as he flies. Textures from the other game don't come along yet.
+Parts without a texture of their own keep their vertex colours (times the attachment's tint); metallic and bump finishes from the other game don't come along. If the textures can't be brought (textures over 512x512, formats that differ), only the shape comes into the open model, as below, and the report says why: keep this game's materials, *Undo Mesh Replacement* takes it back, and **Save GScene As...** puts it in your mod.
+
+Tried in game: Falcon's wings, textured, show on Hawkman and Batman and move as they fly.
 
 ## Supported Games
 
