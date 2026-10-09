@@ -24,7 +24,7 @@ namespace Diorama.Editor.ShaderSystem
 
         public static List<ShaderSetArray> GetShaderSet()
         {
-            using (RawFile file = new RawFile(FingerprintFilename))
+            using (RawFile file = ReadOnlyFile.Open(FingerprintFilename))
             {
                 Cache.OpenShaderSet(new SchemaSerializer(file, false));
 
@@ -151,7 +151,7 @@ namespace Diorama.Editor.ShaderSystem
                 }
             }
 
-            using (RawFile fingerprintFile = new RawFile(FingerprintFilename))
+            using (RawFile fingerprintFile = RawFile.Create(FingerprintFilename)) // truncated, so a smaller cache leaves no old bytes
             {
                 SchemaSerializer schema = new SchemaSerializer(fingerprintFile, true);
 
@@ -183,7 +183,7 @@ namespace Diorama.Editor.ShaderSystem
                     return null;
                 }
 
-                using (RawFile fingerprintFile = new RawFile(FingerprintFilename))
+                using (RawFile fingerprintFile = ReadOnlyFile.Open(FingerprintFilename))
                 {
                     SchemaSerializer schema = new SchemaSerializer(fingerprintFile, false);
 

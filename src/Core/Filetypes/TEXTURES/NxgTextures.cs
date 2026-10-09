@@ -53,7 +53,7 @@ namespace Diorama.Core.Filetypes.TEXTURES
 
             try
             {
-                using (RawFile nxgFile = new RawFile(filePath))
+                using (RawFile nxgFile = ReadOnlyFile.Open(filePath))
                 {
                     SchemaSerializer schema = new SchemaSerializer(nxgFile, false);
 
@@ -93,6 +93,25 @@ namespace Diorama.Core.Filetypes.TEXTURES
         public NuResourceHeader ResourceHeader;
 
         public NuTextureSet TextureSet;
+
+        /// <summary>
+        /// The file with <paramref name="textures"/> in place of the ones read. The set read is refilled rather than
+        /// replaced, so its arrays keep their ROTV/zero markers and unchanged textures come back byte for byte.
+        /// </summary>
+        public byte[] ToBytes(IEnumerable<NuTexture> textures)
+        {
+            TextureSet.Textures = textures.ToArray();
+            TextureSet.TextureHeaders.Clear();
+            TextureSet.TextureHeaders.AddRange(TextureSet.Textures.Select(t => t.Header));
+
+            var buffer = new MemoryStream();
+            using (RawFile file = new RawFile(buffer))
+            {
+                Handle(new SchemaSerializer(file, true), 0);
+            }
+            return buffer.ToArray();
+        }
+
 
         public static void LoadExternalTexture(NuTexture tex)
         {

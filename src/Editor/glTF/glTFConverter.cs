@@ -1,4 +1,5 @@
-﻿using Diorama.Core;
+﻿using Diorama.Core.IO;
+using Diorama.Core;
 using Diorama.Core.Filetypes.GSC;
 using Diorama.Core.Filetypes.GSC.Components;
 using Diorama.Rendering;
@@ -84,7 +85,7 @@ namespace Diorama.Editor.glTF
             if (!Path.Exists(binaryPath))
                 throw new FileNotFoundException($"Could not locate file: {binaryPath}");
 
-            using (RawFile binary = new RawFile(binaryPath))
+            using (RawFile binary = ReadOnlyFile.Open(binaryPath))
             {
                 RenderMesh mesh = DecodeMesh(binary, header, mainNode, originalMesh, scene);
 

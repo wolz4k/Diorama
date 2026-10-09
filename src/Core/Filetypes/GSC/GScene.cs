@@ -1,4 +1,5 @@
-﻿using Diorama.Core.Filetypes.GSC.Components;
+﻿using Diorama.Core.IO;
+using Diorama.Core.Filetypes.GSC.Components;
 using Diorama.Core.Filetypes.GSC;
 using Diorama.Core.Types;
 using System;
@@ -146,7 +147,7 @@ namespace Diorama.Core.Filetypes.GSC
 
         public static GScene Parse(string filePath)
         {
-            using (RawFile file = new RawFile(filePath))
+            using (RawFile file = ReadOnlyFile.Open(filePath))
             {
                 return Parse(file);
             }

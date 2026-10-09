@@ -54,14 +54,19 @@ namespace Diorama
             Title = $"Diorama - {AppSettings.BuildVersion} [{AppSettings.BuildType}] ({AppSettings.BuildDate})";
 
             string[] args = Environment.GetCommandLineArgs();
-            if (args.Length > 1)
+            if (args.Length > 2 && args[1] == "--save-sweep")
             {
-                if (!File.Exists(args[1]))
+                MainViewport.RunSaveSweep(args[2]);
+            }
+            else
+            {
+                foreach (string path in args.Skip(1)) // Diorama.exe A_DX11.GSC B_DX11.GSC opens both
                 {
-                    Console.WriteLine("Invalid file path provided for scene");
-                    return;
+                    if (File.Exists(path))
+                        MainViewport.LoadScene(path);
+                    else
+                        Console.WriteLine($"No such scene file: {path}");
                 }
-                MainViewport.LoadScene(args[1]);
             }
 
             this.AttachDevTools();
@@ -69,23 +74,25 @@ namespace Diorama
 
         private void Window_DragDrop(object sender, DragEventArgs e)
         {
-            string firstFile = string.Empty;
+            var dropped = new List<string>();
             if (e.DataTransfer.Formats.Contains(DataFormat.File))
             {
                 var files = e.DataTransfer.TryGetFiles();
                 if (files != null)
                 {
-                    firstFile = files.First().Path.LocalPath;
+                    dropped.AddRange(files.Select(f => f.Path.LocalPath)
+                        .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".ghg", StringComparison.OrdinalIgnoreCase)));
                 }
             }
 
-            if (firstFile == string.Empty) return;
+            if (dropped.Count == 0) return;
 
 #if DEBUG // When triggering a breakpoint, explorer sort of just freezes until the code continues which is insufferable
                     Dispatcher.UIThread.Invoke(new Action(() =>
             {
 #endif
-                MainViewport.LoadScene(firstFile);
+                foreach (string path in dropped)
+                    MainViewport.LoadScene(path);
 #if DEBUG
             }), DispatcherPriority.Background);
 #endif
@@ -93,22 +100,26 @@ namespace Diorama
 
         private void LightmapItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            ViewportNewControl.ShowLightmaps = !ViewportNewControl.ShowLightmaps;
+            // a checkable View menu item: it has already flipped its tick
+            ViewportNewControl.ShowLightmaps = (sender as MenuItem)?.IsChecked ?? !ViewportNewControl.ShowLightmaps;
         }
 
         private void CameraLightItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            ViewportNewControl.UseCameraLight = !ViewportNewControl.UseCameraLight;
+            // a checkable View menu item: it has already flipped its tick
+            ViewportNewControl.UseCameraLight = (sender as MenuItem)?.IsChecked ?? !ViewportNewControl.UseCameraLight;
         }
 
         private void ShadowItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            ViewportNewControl.ShowShadowImpostors = !ViewportNewControl.ShowShadowImpostors;
+            // a checkable View menu item: it has already flipped its tick
+            ViewportNewControl.ShowShadowImpostors = (sender as MenuItem)?.IsChecked ?? !ViewportNewControl.ShowShadowImpostors;
         }
 
         private void CullingItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            ViewportNewControl.UseFrustumCulling = !ViewportNewControl.UseFrustumCulling;
+            // a checkable View menu item: it has already flipped its tick
+            ViewportNewControl.UseFrustumCulling = (sender as MenuItem)?.IsChecked ?? !ViewportNewControl.UseFrustumCulling;
         }
 
         private async void Settings_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -131,19 +142,15 @@ namespace Diorama
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "Open GScene File",
-                AllowMultiple = false,
+                AllowMultiple = true, // several pieces of a level open together
                 FileTypeFilter = new[]
                 {
                     new FilePickerFileType("GScene files") { Patterns = new[] { "*.GSC", "*.GHG" } }
                 }
             });
 
-            if (files.Count > 0)
-            {
-                string filePath = files[0].Path.LocalPath;
-
-                MainViewport.LoadScene(filePath);
-            }
+            foreach (var file in files)
+                MainViewport.LoadScene(file.Path.LocalPath);
         }
 
         private void OpenArchiveFile_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -153,6 +160,14 @@ namespace Diorama
 
         private async void OpenArchiveFile()
         {
+            if (!FileProvider.IsConfigured)
+            {
+                sceneController.ShowMessageDialog("No game folder set", [
+                    "This lists every scene in the game folder chosen in Settings: the folder with the game's .DAT files, or an extracted install.",
+                    "Set it in Settings first, or use File > Open (or drag a .GSC / .GHG onto the window) to open one file."]);
+                return;
+            }
+
             List<FileLocation> filePaths = new();
 
             foreach (var fileLocation in FileProvider.EnumerateLocations("gsc", "ghg"))

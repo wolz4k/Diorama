@@ -168,6 +168,7 @@ namespace Diorama.Rendering
             blendShader.SetMatrix4("projection", camera.Projection);
             gizmoShader.SetMatrix4("projection", camera.Projection);
             blendShader.SetBool("lightingEnabled", ViewportNewControl.UseCameraLight);
+            blendShader.SetBool("shapeShading", RenderOptions.ShapeShading);
 
             blendShader.SetBool("debug_color0", RenderOptions.Color0);
             blendShader.SetBool("debug_color0r", RenderOptions.Color0R);

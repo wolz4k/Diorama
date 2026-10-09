@@ -24,6 +24,8 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Margin="5" Spacing="5">
             <controls:PropertyEditor Property="Name" />
+            <TextBlock TextWrapping="Wrap" Opacity="0.7" Margin="2,0,2,4"
+                       Text="A layer groups parts of the scene that the game handles together. Each entry below is one part: its object and the joint it hangs from. A layer with no entries holds nothing." />
             <TextBlock>Layer Parts:</TextBlock>
             <ItemsControl ItemsSource="{Binding LayerItems}">
               <ItemsControl.ItemTemplate>

@@ -46,6 +46,12 @@ namespace Diorama.UI.Controls
             });
         }
 
+        /// <summary>Diorama.exe --save-sweep list.txt: see <see cref="SceneController.RunSaveSweep"/>.</summary>
+        public void RunSaveSweep(string listPath)
+        {
+            renderService.Enqueue(() => sceneController.RunSaveSweep(listPath));
+        }
+
         public void LoadScene(RawFile scene, RawFile textures, RawFile cubemap_textures, string scenePath)
         {
             GScene gscene = GScene.Parse(scene);

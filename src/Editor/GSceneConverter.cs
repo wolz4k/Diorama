@@ -90,6 +90,12 @@ namespace Diorama.Editor
                 //var nxg_textures = NxgTextures.Read(Path.ChangeExtension(filePath, "nxg_textures"));
                 if (nxg_textures != null)
                 {
+                    // the other scenes this one names (a hub piece's shared texture scene), where name-only textures are
+                    string ownName = Path.GetFileName(scene.Path ?? "");
+                    var sharedScenes = (scene.ResourceHeader?.FileTree?.GetIndexedFiles().Values ?? Enumerable.Empty<string>())
+                        .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(p).Equals(ownName, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
                     for (int i = 0; i < nxg_textures.TextureSet.Textures.Length; i++)
                     {
                         var texture = nxg_textures.TextureSet.Textures[i];
@@ -101,7 +107,8 @@ namespace Diorama.Editor
                         //    NxgTextures.LoadExternalTexture(texture);
                         //}
 
-                        textures.Add(RenderTexture.FromNuTexture(texture));
+                        var shared = sharedScenes.Count > 0 && SharedTextures.IsNameOnly(texture) ? SharedTextures.Find(sharedScenes, texture.Header.Name) : null;
+                        textures.Add(RenderTexture.FromNuTexture(texture, shared));
                     }
                     editorScene.OriginalTextures = nxg_textures;
                 }
@@ -341,7 +348,10 @@ namespace Diorama.Editor
                     EditorClipObject clip = new EditorClipObject();
                     foreach (var el in displayClip.Elements)
                     {
-                        NuTransformMtx local = display.TransformMtxs[el.TransformIndex];
+                        // Some cutscene props (CUT_GLINT) have no meshes or transforms at all, so there's nothing to draw.
+                        // A missing transform reads as zero, which already means "identity, not editable".
+                        if (el.MeshIndex < 0 || el.MeshIndex >= meshes.Length) continue;
+                        NuTransformMtx local = el.TransformIndex >= 0 && el.TransformIndex < (display.TransformMtxs?.Count ?? 0) ? display.TransformMtxs![el.TransformIndex] : new NuTransformMtx();
                         Matrix4 mtx = local.AsMatrix();
                         RenderMesh mesh = meshes[el.MeshIndex];
                         EditorGeometryObject obj = new EditorGeometryObject();
@@ -413,23 +423,11 @@ namespace Diorama.Editor
                         if (lod.NumInstances == 0) continue;
 
                         sceneObject.Lods[j].Spare = new();
-                        for (int k = 0; k < lod.NumInstances; k++)
+                        foreach (var lodClip in LodClips(lod, display, allClipObjects, 0))
                         {
-                            if (lod.LodHeirarchical == 0)
-                            {
-                                var lodClip = allClipObjects[lod.FirstInstance + k];
-                                sceneObject.Lods[j].ClipObject = lodClip;
-                                lodClip.Parent = sceneObject;
-                                sceneObject.Lods[j].Spare.Add(lodClip);
-                            }
-                            else
-                            {
-                                var childInstance = display.SceneInstances[lod.FirstInstance + k];
-                                var lodClip = allClipObjects[childInstance.ClipObjectIndex];
-                                sceneObject.Lods[j].ClipObject = lodClip;
-                                lodClip.Parent = sceneObject;
-                                sceneObject.Lods[j].Spare.Add(lodClip);
-                            }
+                            sceneObject.Lods[j].ClipObject = lodClip;
+                            lodClip.Parent = sceneObject;
+                            sceneObject.Lods[j].Spare.Add(lodClip);
                         }
                     }
 
@@ -468,7 +466,7 @@ namespace Diorama.Editor
                     var mtx = jointTransforms[i].mtx.ToMatrix4().Inverted();
                     var joint = new EditorJoint(joints[i], mtx, editorScene);
 
-                    if (joint.Original.ParentIndex != 255)
+                    if (joint.Original.ParentIndex != 255 && joint.Original.ParentIndex < editorScene.AllJoints.Count)
                     {
                         EditorJoint parent = (EditorJoint)editorScene.AllJoints[joint.Original.ParentIndex];
                         joint.Parent = parent;
@@ -487,7 +485,8 @@ namespace Diorama.Editor
                     var poi = poiData[i];
                     editorScene.PoIs.Add(new EditorPointOfInterest(poi, editorScene)
                     {
-                        Parent = (EditorJoint)editorScene.AllJoints[poi.ParentJointIdx]
+                        // some points of interest have no joint (255, or past the joints, as in ADDITIONALMODEL_HOODDOWN)
+                        Parent = poi.ParentJointIdx < editorScene.AllJoints.Count ? (EditorJoint)editorScene.AllJoints[poi.ParentJointIdx] : null
                     });
                 }
 
@@ -501,11 +500,12 @@ namespace Diorama.Editor
                         SceneOwner = editorScene
                     };
 
-                    if (metadata.JointIndex != 255)
+                    // indices past the lists are tolerated: a few files point at joints they don't have (ADDITIONALMODEL_HOODDOWN)
+                    if (metadata.JointIndex != 255 && metadata.JointIndex < editorScene.AllJoints.Count)
                     {
                         editorMetadata.Joint = (EditorJoint)editorScene.AllJoints[metadata.JointIndex];
                     }
-                    if (metadata.SpecialIndex != -1)
+                    if (metadata.SpecialIndex >= 0 && metadata.SpecialIndex < editorScene.SpecialObjects.Count)
                     {
                         editorMetadata.SpecialObject = (EditorSpecialObject)editorScene.SpecialObjects[metadata.SpecialIndex];
                     }
@@ -520,7 +520,7 @@ namespace Diorama.Editor
                     var editorLayer = new EditorLayer(layer);
 
                     int total = layer.NumRigids + layer.NumSkins;
-                    for (int j = 0; j < total; j++)
+                    for (int j = 0; j < total && layer.MetaDataIndex + j < metadataItems.Length; j++)
                     {
                         editorLayer.LayerItems.Add(metadataItems[layer.MetaDataIndex + j]);
                     }
@@ -535,7 +535,7 @@ namespace Diorama.Editor
                     {
                         var metadata = lodGroup.LayerMetadata[j];
 
-                        if (metadata.SpecialIndex != -1)
+                        if (metadata.SpecialIndex >= 0 && metadata.SpecialIndex < editorScene.SpecialObjects.Count)
                         {
                             EditorSpecialObject obj = (EditorSpecialObject)editorScene.SpecialObjects[metadata.SpecialIndex];
                             obj.LODGroup = i;
@@ -550,13 +550,30 @@ namespace Diorama.Editor
             }
 
             editorScene.CharacterLodCount = scene.CharacterData.Count;
+            foreach (var obj in editorScene.Objects.OfType<EditorSceneObject>())
+            {
+                if (obj.SpecialObject is { LODGroup: >= 0 } special && obj.ClipObject != null)
+                    foreach (var geo in obj.ClipObject.Elements)
+                    {
+                        geo.LodGroup = special.LODGroup;
+                        geo.IsBreakupPart = special.IsBreakup;
+                    }
+            }
 
             if (scene.Metadata != null) // A bit of a sanity check
             {
-                if (scene.Metadata.MetaStrings.Count != textures.Count)
+                editorScene.LoadedTextureCount = textures.Count;
+                if (nxg_textures == null && scene.Metadata.MetaStrings.Count > 0)
                 {
-                    problems.Add("Caution: Number of textures referenced in scene does not match number of textures in nxg_textures file - This will likely crash in-game!");
-                    problems.Add("    Ensure you save both the scene and the textures file so they stay synchronised!");
+                    editorScene.MetaStringsMatchedTextures = false;
+                    problems.Add($"Note: there's no .NXG_TEXTURES file for this scene (beside it, or where its resource header says), so its {scene.Metadata.MetaStrings.Count} textures show white.");
+                }
+                else if (scene.Metadata.MetaStrings.Count != textures.Count)
+                {
+                    editorScene.MetaStringsMatchedTextures = false;
+                    problems.Add($"Note: the scene lists {scene.Metadata.MetaStrings.Count} texture names but its .NXG_TEXTURES file has {textures.Count} textures.");
+                    problems.Add("    A few of the game's own files do this (extra dummy lightmap names), and saving keeps the list as it is.");
+                    problems.Add("    If this is your mod's file, make sure its textures were saved with it (Save Textures).");
                 }
                 else
                 { 
@@ -569,6 +586,35 @@ namespace Diorama.Editor
             }
 
             return editorScene;
+        }
+
+        /// <summary>
+        /// The clip objects one LOD of a scene instance draws. A hierarchical LOD lists other instances, and in the hub levels
+        /// (Gotham, Metropolis, Apokolips...) such a child can itself be a LOD group with no clip of its own (index -1), so
+        /// it's resolved to its own most detailed LOD in turn. Indices past the lists are skipped.
+        /// </summary>
+        private static IEnumerable<EditorClipObject> LodClips(NuSceneInstanceLod lod, NuDisplayScene display, List<EditorClipObject> clips, int depth)
+        {
+            for (int k = 0; k < lod.NumInstances; k++)
+            {
+                int index = (int)lod.FirstInstance + k;
+                if (lod.LodHeirarchical == 0)
+                {
+                    if (index >= 0 && index < clips.Count)
+                        yield return clips[index];
+                    continue;
+                }
+
+                if (index < 0 || index >= display.SceneInstances.Count)
+                    continue;
+                var child = display.SceneInstances[index];
+                if (child.ClipObjectIndex >= 0 && child.ClipObjectIndex < clips.Count)
+                    yield return clips[child.ClipObjectIndex];
+                else if (depth < 8 && child.Lods != null)
+                    foreach (var childLod in child.Lods.Where(l => l.NumInstances > 0).Take(1))
+                        foreach (var clip in LodClips(childLod, display, clips, depth + 1))
+                            yield return clip;
+            }
         }
 
         /// <summary>
@@ -614,6 +660,17 @@ namespace Diorama.Editor
             catch (Exception ex)
             {
                 Console.WriteLine("Could not open / parse nxg_textures file!");
+            }
+
+            // A few DLC items (FUSION_MERA_FIST in LP_AQUAMANMOVIEPART1) have no texture file beside them; their resource
+            // header names it, in another folder of the install
+            if (textures == null && scene.ResourceHeader?.FileTree?.GetIndexedFiles().Values
+                    .FirstOrDefault(p => p.EndsWith(".nxg_textures", StringComparison.OrdinalIgnoreCase)) is { } listed)
+            {
+                FileProvider.AddLooseRootsFor(filePath);
+                using RawFile? file = FileProvider.GetFile(listed);
+                if (file != null)
+                    textures = NxgTextures.Read(file);
             }
 
             NxgTextures cubemap_textures = null;
@@ -689,6 +746,7 @@ namespace Diorama.Editor
                 metadata.Resources.Add(editorRef);
             }
 
+            metadata.LoadedSignature = metadata.Signature();
             return metadata;
         }
 
@@ -718,17 +776,66 @@ namespace Diorama.Editor
         }
 
         private const string defaultString = "default_string";
+        /// <summary>
+        /// Keeps the scene's name table and points each special object at its name in it. Joints, layers, points of
+        /// interest, splines and occluders also hold offsets into this table, so it's never rebuilt: an unchanged name keeps
+        /// its offset, and a renamed object reuses a matching name or has its new one added at the end.
+        /// </summary>
         public static void CreateNameTable(EditorScene scene)
         {
-            NuAlignedBuffer nameTable = new NuAlignedBuffer();
-            nameTable.SetPadding(1);
-            nameTable.AddString(defaultString);
+            var table = scene.OriginalScene.NameTable;
+            if (table.Names?.Buffer == null)
+            {
+                NuAlignedBuffer nameTable = new NuAlignedBuffer();
+                nameTable.SetPadding(1);
+                nameTable.AddString(defaultString);
+                foreach (EditorSpecialObject specialObject in scene.SpecialObjects)
+                {
+                    specialObject.Original.NameIndex = (uint)nameTable.AddString(specialObject.Name);
+                }
+                nameTable.Finalise();
+                table.Names = nameTable;
+                return;
+            }
+
+            var buffer = new List<byte>(table.Names.Buffer);
             foreach (EditorSpecialObject specialObject in scene.SpecialObjects)
             {
-                specialObject.Original.NameIndex = (uint)nameTable.AddString(specialObject.Name);
+                string name = specialObject.Name ?? "";
+                if (NameAt(buffer, (int)specialObject.Original.NameIndex) == name)
+                    continue;
+                int existing = FindName(buffer, name);
+                if (existing >= 0)
+                {
+                    specialObject.Original.NameIndex = (uint)existing;
+                    continue;
+                }
+                specialObject.Original.NameIndex = (uint)buffer.Count;
+                buffer.AddRange(System.Text.Encoding.UTF8.GetBytes(name));
+                buffer.Add(0);
             }
-            nameTable.Finalise();
-            scene.OriginalScene.NameTable.Names = nameTable;
+            table.Names.Buffer = buffer.ToArray();
+        }
+
+        private static string? NameAt(List<byte> buffer, int offset)
+        {
+            if (offset < 0 || offset >= buffer.Count) return null;
+            int end = offset;
+            while (end < buffer.Count && buffer[end] != 0) end++;
+            return System.Text.Encoding.UTF8.GetString(buffer.GetRange(offset, end - offset).ToArray());
+        }
+
+        /// <summary>The offset of <paramref name="name"/> as a whole string in the table, or -1.</summary>
+        private static int FindName(List<byte> buffer, string name)
+        {
+            for (int start = 0; start < buffer.Count;)
+            {
+                int end = start;
+                while (end < buffer.Count && buffer[end] != 0) end++;
+                if (end > start && NameAt(buffer, start) == name) return start;
+                start = end + 1;
+            }
+            return -1;
         }
 
         public static void ConvertCharacterData(EditorScene scene)
@@ -745,14 +852,18 @@ namespace Diorama.Editor
 
         public static void ConvertMaterials(EditorScene scene)
         {
+            // A texture still showing the white stand-in was never resolved (no texture, or an index past the texture
+            // file, as in scenes whose name list starts with dummy lightmaps), so it keeps the index it was read with.
+            int IndexOf(RenderTexture texture, int read) => RenderTexture.IsWhitePlaceholder(texture) ? read : scene.Textures.IndexOf(texture);
+
             foreach (var mat in scene.Materials)
             {
-                mat.Original.Diffuse0Index = scene.Textures.IndexOf(mat.Diffuse0);
-                mat.Original.Diffuse1Index = scene.Textures.IndexOf(mat.Diffuse1);
-                mat.Original.Normal0Index = scene.Textures.IndexOf(mat.Normal0);
-                mat.Original.Normal1Index = scene.Textures.IndexOf(mat.Normal1);
+                mat.Original.Diffuse0Index = IndexOf(mat.Diffuse0, mat.Original.Diffuse0Index);
+                mat.Original.Diffuse1Index = IndexOf(mat.Diffuse1, mat.Original.Diffuse1Index);
+                mat.Original.Normal0Index = IndexOf(mat.Normal0, mat.Original.Normal0Index);
+                mat.Original.Normal1Index = IndexOf(mat.Normal1, mat.Original.Normal1Index);
 
-                mat.Original.Specular0Index = scene.Textures.IndexOf(mat.Specular0);
+                mat.Original.Specular0Index = IndexOf(mat.Specular0, mat.Original.Specular0Index);
 
                 mat.Original.OldTid = mat.Original.Diffuse0Index;
 
@@ -764,6 +875,11 @@ namespace Diorama.Editor
         public static void ConvertResourceHeader(EditorScene scene)
         {
             var nuScene = scene.OriginalScene;
+            // Rebuilding the file tree can list the paths in a different order from the game's (ARKHAMGROUND), so only
+            // rebuild it when the references were changed
+            if (scene.Metadata.LoadedSignature != null && scene.Metadata.Signature() == scene.Metadata.LoadedSignature)
+                return;
+
             var rawResources = scene.Metadata.Resources;
 
             List<EditorResourceReference> resources = scene.Metadata.Resources.OrderBy(x => x.Type).ToList();
@@ -824,13 +940,18 @@ namespace Diorama.Editor
         {
             GScene_4F originalScene = (GScene_4F)scene.OriginalScene;
 
-            List<NuDynamicString> textureStrings = new List<NuDynamicString>();
+            // A few scenes list more names than their texture file has (EFFECT_GRID_GLOW starts with three dummy lightmap
+            // names), so the list isn't one name per texture: keep it as the file had it unless textures were added or removed.
+            if (!scene.MetaStringsMatchedTextures && scene.Textures.Count == scene.LoadedTextureCount)
+                return;
+
+            // Refill the list it was read into (rather than a new one) so it keeps its ROTV/zero marker (see VectorMarkers)
+            var textureStrings = originalScene.Metadata.MetaStrings ??= new List<NuDynamicString>();
+            textureStrings.Clear();
             foreach (var tex in scene.Textures)
             {
                 textureStrings.Add(new NuDynamicString(tex.GscName));
             }
-
-            originalScene.Metadata.MetaStrings = textureStrings;
         }
 
         public static void HandleShaders(EditorScene scene)
@@ -889,7 +1010,7 @@ namespace Diorama.Editor
 
                 NxgShaders shaders = null;
 
-                using (RawFile file = new RawFile(shaderPath))
+                using (RawFile file = ReadOnlyFile.Open(shaderPath))
                 {
                     shaders = NxgShaders.Read(file);
 

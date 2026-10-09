@@ -46,7 +46,7 @@
                   AttachedToVisualTree="TexturePreview_Attached"/>
 
               <TextBlock
-                  Text="{Binding Texture.Name}"
+                  Text="{Binding Texture.ShortName}"
                   ToolTip.Tip="{Binding Texture.Name}"
                   HorizontalAlignment="Center"
                   TextTrimming="CharacterEllipsis"/>

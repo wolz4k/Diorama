@@ -23,27 +23,37 @@
       
       <Menu Grid.Column="0" BorderBrush="#ff404040" BorderThickness="0,0,0,1">
         <MenuItem Header="_File">
-          <MenuItem Header="Open" Click="OpenFile_Click"/>
-          <MenuItem Header="Open From Source Location" Click="OpenArchiveFile_Click"/>
+          <MenuItem Header="Open" Click="OpenFile_Click"
+                    ToolTip.Tip="Open a .GSC (level, prop) or .GHG (character) file. Its .NXG_TEXTURES beside it is loaded too. You can also drag a file onto the window." />
+          <MenuItem Header="Open From Source Location" Click="OpenArchiveFile_Click"
+                    ToolTip.Tip="Pick from every scene in the game folder set in Settings, including ones inside the game's .DAT archives" />
         </MenuItem>
-        <MenuItem Header="Toggle Camera Lighting" Click="CameraLightItem_Click" />
-        <MenuItem Header="Toggle Lightmaps" Click="LightmapItem_Click" />
-        <MenuItem Header="Toggle Shadow Impostors" Click="ShadowItem_Click" />
-        <MenuItem Header="Toggle Frustum Culling" Click="CullingItem_Click" />
+        <MenuItem Header="_View">
+          <MenuItem Header="Material Lighting" ToggleType="CheckBox" IsChecked="False" Click="CameraLightItem_Click"
+                    ToolTip.Tip="Light models the way their materials react to light (specular, reflections), with a light at the camera. Darker than the game, which adds its own scene lighting." />
+          <MenuItem Header="Lightmaps" ToggleType="CheckBox" IsChecked="False" Click="LightmapItem_Click"
+                    ToolTip.Tip="Show the light and shadow baked into level geometry" />
+          <MenuItem Header="Shadow Impostors" ToggleType="CheckBox" IsChecked="False" Click="ShadowItem_Click"
+                    ToolTip.Tip="Show the flat blob shadows the game draws under objects" />
+          <MenuItem Header="Frustum Culling" ToggleType="CheckBox" IsChecked="False" Click="CullingItem_Click"
+                    ToolTip.Tip="Skip drawing objects outside the view, which speeds up big levels" />
+        </MenuItem>
         <MenuItem Header="Settings" Click="Settings_Click" />
       </Menu>
 
       <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" x:Name="RenderOptionsItems">
-        <ComboBox SelectedIndex="{Binding CharacterLod}" VerticalAlignment="Center"
-                  ToolTip.Tip="Character detail level: LOD 0 is the cutscene model, LOD 1-3 are in-game, most to least detailed">
+        <ComboBox SelectedIndex="{Binding CharacterLod}" VerticalAlignment="Center" IsVisible="{Binding ShowCharacterOptions}"
+                  ToolTip.Tip="Which copy of the character to show. A character keeps up to four copies of its model, from LOD 0 (most detail) to LOD 3 (about a quarter of the vertices). Replacing a part changes only the LOD it's in.">
           <ComboBoxItem Content="LOD 0" />
           <ComboBoxItem Content="LOD 1" />
           <ComboBoxItem Content="LOD 2" />
           <ComboBoxItem Content="LOD 3" />
         </ComboBox>
-        <ToggleButton Content="Breakup" IsChecked="{Binding ShowBreakup}" ToolTip.Tip="Show the brick pieces a character falls apart into when smashed" />
-        <ToggleButton Content="PoIs" IsChecked="{Binding ShowPoIs}" ToolTip.Tip="Show Points of Interest" />
-        <Button Content="👁️">
+        <ToggleButton Content="Breakup" IsChecked="{Binding ShowBreakup}" IsVisible="{Binding ShowCharacterOptions}" ToolTip.Tip="Show the brick pieces a character falls apart into when smashed" />
+        <ToggleButton Content="Points" IsChecked="{Binding ShowPoIs}" ToolTip.Tip="Show the points of interest: named spots on a character where the game attaches things, such as Hat_Locator (hats and hair), RightHand_Locator (held items) and Breath_Locator (breath effects)" />
+        <ToggleButton Content="Shading" IsChecked="{Binding ShapeShading}"
+                      ToolTip.Tip="Shade models so their shape is visible: surfaces turned away from you get darker. Off shows the flat colours the textures and vertex colours give (the game adds its own lighting)." />
+        <Button Content="👁️" ToolTip.Tip="Debug views: show only the vertex colours (or one channel of them), and turn specular highlights and reflections on or off">
           <Button.Flyout>
             <Flyout Placement="BottomEdgeAlignedRight">
               <controls:RenderOptionsPanel x:Name="RenderOptionsPanel" />

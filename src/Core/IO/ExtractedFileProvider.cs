@@ -19,7 +19,7 @@ namespace Diorama.Core.IO
             if (!Path.Exists(systemLocation))
                 return null;
 
-            return new RawFile(systemLocation);
+            return ReadOnlyFile.Open(systemLocation);
         }
 
         public IEnumerable<RawFile> EnumerateFiles(params string[] extensions)
@@ -35,7 +35,7 @@ namespace Diorama.Core.IO
                     pattern,
                     SearchOption.AllDirectories))
                 {
-                    using var file = new RawFile(path);
+                    using var file = ReadOnlyFile.Open(path);
                     yield return file;
                 }
             }

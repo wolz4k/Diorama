@@ -58,7 +58,7 @@ namespace Diorama.Editor.Material
 
         public RenderTexture EnvMap { get; set; }
 
-        [DisplayLabel("Metallic Specular")]
+        [DisplayLabel("Metallic Specular", "Shine takes the surface's own colour, as on metal, instead of staying white")]
         public bool MetallicSpecular { get => GetBoolByte(Original.materialFlags_metallic_specular); set => SetBoolByte(ref Original.materialFlags_metallic_specular, value); }
 
         [DisplayLabel("Baked Specular")]
@@ -67,7 +67,7 @@ namespace Diorama.Editor.Material
         [DisplayLabel("Disable Varying Specular")]
         public bool DisableVaryingSpecular { get => GetBoolByte(Original.materialFlags_disable_varying_specular); set => SetBoolByte(ref Original.materialFlags_disable_varying_specular, value); }
 
-        [DisplayLabel("Specular Cos Power")]
+        [DisplayLabel("Specular Cos Power", "How tight the shine is: higher values give a smaller, sharper highlight (glossier)")]
         public float SpecularPower { get => Original.KBaseSpecularCosPower; set => Set(ref Original.KBaseSpecularCosPower, value); }
 
         [DisplayLabel("Specular Bump")]
@@ -79,10 +79,10 @@ namespace Diorama.Editor.Material
         [DisplayLabel("Occlusion")]
         public uint Occlusion { get => Original.occlusion; set => Set(ref Original.occlusion, value); }
 
-        [DisplayLabel("Rim Light")]
+        [DisplayLabel("Rim Light", "Strength of the light around the model's edges, which makes it stand out from the background")]
         public byte RimLight { get => Original.materialFlags_rimlight; set => Set(ref Original.materialFlags_rimlight, value); }
 
-        [DisplayLabel("Enable Glow")]
+        [DisplayLabel("Enable Glow", "Makes the material glow, so it stays bright in the dark. Needs a matching shader in the scene")]
         [RequiresShaderChange]
         public bool Glow
         {
@@ -90,7 +90,7 @@ namespace Diorama.Editor.Material
             set => SetBoolByte(ref Original.materialFlags_glow, value);
         }
 
-        [DisplayLabel("Glow Intensity")]
+        [DisplayLabel("Glow Intensity", "How strongly the material glows, from 0 to 1")]
         [VisibleIf(nameof(Glow))]
         [Slider(0f, 1f)]
         public float KGlow
@@ -155,15 +155,15 @@ namespace Diorama.Editor.Material
         [VisibleIf(nameof(IsDebug))]
         public bool Dump { get => false; set { DebugDump(); OnPropertyChanged(); } }
 
-        [DisplayLabel("Blend Mode")]
+        [DisplayLabel("Blend Mode", "How the material mixes with what's behind it: opaque, or see-through modes such as alpha (glass, decals) and additive (glows, effects)")]
         public EditorBlendMode BlendMode { get => (EditorBlendMode)Original.blendMode; set => Set(ref Original.blendMode, (uint)value); }
 
-        [DisplayLabel("Alpha Test")]
+        [DisplayLabel("Alpha Test", "Cuts out pixels by the texture's alpha, for hair, fences or leaves: pixels that fail the test aren't drawn at all")]
         public EditorAlphaTestMode AlphaTest { get => (EditorAlphaTestMode)Original.alphaTest; set { Set(ref Original.alphaTest, (uint)value); OnPropertyChanged(nameof(ShowAlphaRef)); } }
 
         public bool ShowAlphaRef { get => (uint)AlphaTest > 1; }
 
-        [DisplayLabel("Alpha Reference")]
+        [DisplayLabel("Alpha Reference", "The alpha the test compares against: pixels below it are cut out")]
         [VisibleIf(nameof(ShowAlphaRef))]
         [Slider(0f, 1f)]
         public float AlphaRef { get => GetFloatByte(Original.Aref); set => SetFloatByte(ref Original.Aref, value); }
@@ -175,10 +175,10 @@ namespace Diorama.Editor.Material
         public byte SortLast { get; set; }
         public byte VertexControlledTint { get; set; }
 
-        [DisplayLabel("Lighting Model")]
+        [DisplayLabel("Lighting Model", "How the material reacts to light, e.g. Blinn-Phong for shiny plastic. View > Material Lighting shows it")]
         public EditorLightingModel Lighting { get => (EditorLightingModel)Original.lightingModel; set => Set(ref Original.lightingModel, (uint)value); }
 
-        [DisplayLabel("Shader Type")]
+        [DisplayLabel("Shader Type", "Which family of shader draws the material. Changing it needs matching shaders in the scene")]
         [RequiresShaderChange]
         public EditorShaderType Shader { get => (EditorShaderType)Original.shaderType; set => Set(ref Original.shaderType, (uint)value); }
 
@@ -191,21 +191,21 @@ namespace Diorama.Editor.Material
         [VisibleIf(nameof(ShowSubstanceFactor))]
         public float SubstanceFactor { get => Original.KBaseSubstance; set => Set(ref Original.KBaseSubstance, value); }
 
-        [DisplayLabel("Reflection")]
+        [DisplayLabel("Reflection", "Whether the surface reflects its surroundings (an environment map), like chrome or glass")]
         public EditorReflectionMode Reflection { get => (EditorReflectionMode)Original.reflection; set { Set(ref Original.reflection, (uint)value); OnPropertyChanged(nameof(ShowReflectiveFactor)); } }
 
         public bool ShowReflectiveFactor => Reflection != EditorReflectionMode.Disabled;
 
-        [DisplayLabel("Reflectivity")]
+        [DisplayLabel("Reflectivity", "How much of the reflection shows: 0 is none")]
         [VisibleIf(nameof(ShowReflectiveFactor))]
         public float Reflectivity { get => Original.KBaseReflectivity; set => Set(ref Original.KBaseReflectivity, value); }
 
-        [DisplayLabel("Refraction")]
+        [DisplayLabel("Refraction", "Whether the material bends what's seen through it, like glass or water")]
         public EditorRefraction Refraction { get => (EditorRefraction)Original.refraction; set { Set(ref Original.refraction, (uint)value); OnPropertyChanged(nameof(ShowRefractiveProperties)); } }
 
         public bool ShowRefractiveProperties { get => (uint)Refraction > 0; }
 
-        [DisplayLabel("Refractive Index")]
+        [DisplayLabel("Refractive Index", "How strongly it bends the view behind it: water is about 1.33, glass about 1.5")]
         [VisibleIf(nameof(ShowRefractiveProperties))]
         public float RefractiveIndex { get => Original.KRefractiveIndex; set => Set(ref Original.KRefractiveIndex, value); }
 
@@ -216,23 +216,23 @@ namespace Diorama.Editor.Material
         [DisplayLabel("Baked Lighting")]
         public EditorBakedLightingMode BakedLighting { get => (EditorBakedLightingMode)Original.bakedLighting; set => Set(ref Original.bakedLighting, (uint)value); }
 
-        [DisplayLabel("UV Animation")]
+        [DisplayLabel("UV Animation", "Moves the texture over time, for water, screens or energy effects")]
         public bool UVAnimation { get => GetBoolByte(Original.miscFlags_UVAnimation); set => SetBoolByte(ref Original.miscFlags_UVAnimation, value); }
 
         [DisplayLabel("Roughness")]
         public EditorRoughnessMode Roughness { get => (EditorRoughnessMode)Original.roughnessMode; set => Set(ref Original.roughnessMode, (uint)value); }
 
-        [DisplayLabel("Base Roughness")]
+        [DisplayLabel("Base Roughness", "How rough the surface is: 0 is smooth with a sharp shine, 1 is matte")]
         [Slider(0f, 1f)]
         public float BaseRoughness { get => Original.KBaseRoughness; set => Set(ref Original.KBaseRoughness, value); }
 
         [DisplayLabel("Roughness Mod")]
         public byte RoughnessMod { get => Original.vertexFlags_vertexRoughnessMod; set => Set(ref Original.vertexFlags_vertexRoughnessMod, value); }
 
-        [DisplayLabel("Normal 0 Strength")]
+        [DisplayLabel("Normal 0 Strength", "How strongly the first normal map (painted-on bumps, dents and seams) affects the lighting")]
         public float KNormal0 { get => Original.KNormal0; set => Set(ref Original.KNormal0, value); }
 
-        [DisplayLabel("Normal 1 Strength")]
+        [DisplayLabel("Normal 1 Strength", "How strongly the second normal map affects the lighting")]
         public float KNormal1 { get => Original.KNormal1; set => Set(ref Original.KNormal1, value); }
 
         private bool SetUVBlock(ref NuMtlUVBlock block, int idx, [CallerMemberName] string? propertyName = null)
@@ -326,13 +326,13 @@ namespace Diorama.Editor.Material
         [EnabledIf(nameof(PerLayerScale))]
         public float PerLayerUVScale3 { get => Original.PerLayerUVScale3; set => Set(ref Original.PerLayerUVScale3, value); }
 
-        [DisplayLabel("Shadow Impostor")]
+        [DisplayLabel("Shadow Impostor", "Draws a flat blob shadow under the object")]
         public bool ShadowImpostor { get => GetBoolByte(Original.ShadowImpostor); set => SetBoolByte(ref Original.ShadowImpostor, value); }
 
         [DisplayLabel("Bitangent Flip")]
         public bool BitangentFlip { get => GetBoolByte(Original.BitangentFlip); set => SetBoolByte(ref Original.BitangentFlip, value); }
 
-        [DisplayLabel("Colour")] // might be "has vertex colours"
+        [DisplayLabel("Vertex Colours", "Whether the material uses the mesh's vertex colours; most LEGO bricks get their colour from them")] // the renderer uses it as has_vertex_colors
         public bool Colour { get => GetBoolByte(Original.Colour); set => SetBoolByte(ref Original.Colour, value); }
 
         [DisplayLabel("Generate cubemap")]
@@ -341,16 +341,16 @@ namespace Diorama.Editor.Material
         [DisplayLabel("Force default cubemap")]
         public bool ForceDefaultCubemap { get => GetBoolByte(Original.BForceDefaultCubeMap); set => SetBoolByte(ref Original.BForceDefaultCubeMap, value); }
 
-        [DisplayLabel("Diffuse 0 Tint")]
+        [DisplayLabel("Diffuse 0 Tint", "Colour multiplied into texture layer 0 (white leaves it unchanged)")]
         public Vector4 Colour1 { get => GetColour(Original.Colour1); set => SetColour(ref Original.Colour1, value); }
 
-        [DisplayLabel("Diffuse 1 Tint")]
+        [DisplayLabel("Diffuse 1 Tint", "Colour multiplied into texture layer 1 (white leaves it unchanged)")]
         public Vector4 Colour2 { get => GetColour(Original.Colour2); set => SetColour(ref Original.Colour2, value); }
 
-        [DisplayLabel("Diffuse 2 Tint")]
+        [DisplayLabel("Diffuse 2 Tint", "Colour multiplied into texture layer 2 (white leaves it unchanged)")]
         public Vector4 Colour3 { get => GetColour(Original.Colour3); set => SetColour(ref Original.Colour3, value); }
 
-        [DisplayLabel("Diffuse 3 Tint")]
+        [DisplayLabel("Diffuse 3 Tint", "Colour multiplied into texture layer 3 (white leaves it unchanged)")]
         public Vector4 Colour4 { get => GetColour(Original.Colour4); set => SetColour(ref Original.Colour4, value); }
 
         [DisplayLabel("Specular 0 Multipliers")]

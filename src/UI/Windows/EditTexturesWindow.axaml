@@ -23,12 +23,20 @@
         <RowDefinition Height="300" />
         <RowDefinition Height="*" />
       </Grid.RowDefinitions>
-      <StackPanel HorizontalAlignment="Center" Grid.Row="0" Orientation="Horizontal">
+      <WrapPanel HorizontalAlignment="Center" Grid.Row="0">
         <Button x:Name="AddNewTexture" Width="140" HorizontalContentAlignment="Center">Add new texture</Button>
+        <Button x:Name="ExportTexture" Width="140" HorizontalContentAlignment="Center"
+                ToolTip.Tip="Save this texture as a .DDS file to paint over in an image editor (GIMP, Paint.NET, Photoshop with a DDS plugin)">Export DDS…</Button>
+        <Button x:Name="ExportAllTextures" Width="140" HorizontalContentAlignment="Center"
+                ToolTip.Tip="Save every texture of the scene as a .DDS into a folder you pick, named by texture (lightmaps and empty slots are left out)">Export all…</Button>
+        <Button x:Name="RestoreTexture" Width="140" HorizontalContentAlignment="Center"
+                ToolTip.Tip="Put back the image this texture had when the scene was opened, undoing your replacements">Restore original</Button>
         <Button x:Name="RemoveTexture" Width="140" HorizontalContentAlignment="Center" Background="Red" Foreground="White">Delete texture</Button>
-      </StackPanel>
-      <controls:TexturePreviewControl VerticalAlignment="Center" Grid.Row="1" Texture="{Binding Texture}" Width="256" Height="256" Cursor="Hand" x:Name="PART_MainTexture" />
+      </WrapPanel>
+      <controls:TexturePreviewControl VerticalAlignment="Center" Grid.Row="1" Texture="{Binding Texture}" Width="256" Height="256" Cursor="Hand" x:Name="PART_MainTexture"
+                                      ToolTip.Tip="Click to replace this texture with a .DDS file. Save your edit with the same size and compression (shown below) so the game reads it the same way." />
       <StackPanel Grid.Row="2" DataContext="{Binding EditorTexture}">
+        <TextBlock x:Name="TextureFacts" Margin="5,0,5,8" TextWrapping="Wrap" Foreground="#ffb0b0b0" />
         <controls:PropertyEditor Property="Path" />
         <controls:PropertyEditor Property="Name" />
         <controls:PropertyEditor Property="NutType" />

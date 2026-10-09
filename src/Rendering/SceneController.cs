@@ -66,6 +66,140 @@ namespace Diorama.Rendering
         public ICommand ExportPartsObjCommand { get; }
         public ICommand ReplacePartsObjCommand { get; }
         public ICommand UndoMeshReplaceCommand { get; }
+        public ICommand SaveSceneAsCommand { get; }
+
+        /// <summary>
+        /// Writes the scene to its own path, or to <paramref name="saveAs"/> (which it then belongs to). The first time a
+        /// file that already exists is overwritten its original is kept as .bak. Saving somewhere new also copies the scene's
+        /// companions (X_DX11.NXG_TEXTURES, .GSC.RES, shaders) under the new name, so textures and the rest stay with it.
+        /// </summary>
+        private void SaveScene(EditorScene scene, string? saveAs)
+        {
+            var notes = new List<string>();
+            string oldPath = scene.OriginalScene.Path;
+            try
+            {
+                if (saveAs != null)
+                {
+                    scene.OriginalScene.Path = saveAs;
+                    // the textures are written from memory below (edits included), so they aren't copied
+                    notes.AddRange(CopyCompanions(oldPath, saveAs, skip: scene.OriginalTextures != null ? ".NXG_TEXTURES" : null));
+                }
+                string path = scene.OriginalScene.Path;
+                if (File.Exists(path) && !File.Exists(path + ".bak"))
+                {
+                    File.Copy(path, path + ".bak");
+                    notes.Add($"The file as it was before is kept as {Path.GetFileName(path)}.bak (only the first save makes one).");
+                }
+
+                GSceneConverter.Write(scene);
+                notes.Insert(0, $"Saved {path}.");
+                if (saveAs != null && scene.OriginalTextures != null)
+                {
+                    var textureNotes = new List<string>();
+                    SaveTextures(scene, Path.Combine(Path.GetDirectoryName(saveAs) ?? "", Path.GetFileNameWithoutExtension(saveAs) + ".NXG_TEXTURES"), textureNotes);
+                    notes.AddRange(textureNotes);
+                }
+                else if (TexturesChanged(scene))
+                    notes.Add("Changed textures are saved separately: Save Textures in the scene's right-click menu.");
+
+                if (saveAs != null)
+                {
+                    // the scene's own list of files still has the old names; whether the game goes by it isn't known yet
+                    string oldStem = Path.GetFileNameWithoutExtension(oldPath);
+                    if (oldStem.EndsWith("_DX11", StringComparison.OrdinalIgnoreCase)) oldStem = oldStem[..^5]; // darkseid.shaders too
+                    var named = scene.Metadata.Resources.Select(r => r.FilePath).Where(f => f != null && Path.GetFileName(f).StartsWith(oldStem, StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (named.Count > 0 && !Path.GetFileNameWithoutExtension(saveAs).StartsWith(oldStem + "_DX11", StringComparison.OrdinalIgnoreCase) && !Path.GetFileNameWithoutExtension(saveAs).Equals(oldStem, StringComparison.OrdinalIgnoreCase))
+                        notes.Add($"Its resource header still names the original files ({string.Join(", ", named.Select(Path.GetFileName))}). If the game should load the new ones, change those names in Edit Resource Header and save again.");
+                }
+                ShowMessageDialog("Scene saved", notes.Select(n => "• " + n));
+            }
+            catch (Exception ex)
+            {
+                if (saveAs != null) scene.OriginalScene.Path = oldPath;
+                ShowMessageDialog("Could not save the scene", [ex.Message]);
+            }
+        }
+
+        /// <summary>Whether textures were replaced, added, removed or reordered since they were read or last saved.</summary>
+        private static bool TexturesChanged(EditorScene scene) =>
+            scene.OriginalTextures?.TextureSet?.Textures is { } saved
+            && (saved.Length != scene.Textures.Count || scene.Textures.Where((t, i) => !ReferenceEquals(t.Original, saved[i])).Any());
+
+        /// <summary>Writes the scene's textures, as they are now, to <paramref name="path"/> (an .NXG_TEXTURES), keeping a .bak of the first overwrite.</summary>
+        private static void SaveTextures(EditorScene scene, string path, List<string> notes)
+        {
+            var nxg = scene.OriginalTextures;
+            var empty = scene.Textures.Select((t, i) => (t, i)).Where(x => !string.IsNullOrEmpty(x.t.Original?.Header?.Name) && x.t.Original.ImageHeader == null).ToList();
+            if (empty.Count > 0)
+                throw new InvalidOperationException($"Texture {string.Join(", ", empty.Select(x => x.i))} has no image yet. Replace it with a .DDS (click its preview in Edit Textures) or remove it, then save again.");
+
+            // built in memory first, so a failure halfway doesn't leave a broken file behind
+            byte[] bytes = nxg.ToBytes(scene.Textures.Select(t => t.Original));
+
+            if (File.Exists(path) && !File.Exists(path + ".bak"))
+            {
+                File.Copy(path, path + ".bak");
+                notes.Add($"The texture file as it was before is kept as {Path.GetFileName(path)}.bak (only the first save makes one).");
+            }
+
+            File.WriteAllBytes(path, bytes);
+            nxg.Path = path;
+            notes.Insert(0, $"Saved {scene.Textures.Count} textures to {path}.");
+        }
+
+        /// <summary>
+        /// A check for the editor's save path (which needs OpenGL, so the tests can't run it): opens each scene listed in
+        /// <paramref name="listPath"/> (one path per line), saves it through the editor to listPath.out.bin, and writes
+        /// SAME / DIFF / FAIL per scene to listPath.results, and what opening each would have reported to listPath.notes,
+        /// then exits. Run as Diorama.exe --save-sweep list.txt.
+        /// </summary>
+        public void RunSaveSweep(string listPath)
+        {
+            var results = new List<string>();
+            var loadNotes = new List<string>();
+            string outFile = listPath + ".out.bin";
+            foreach (var file in File.ReadAllLines(listPath).Where(l => l.Trim().Length > 0))
+            {
+                try
+                {
+                    var scene = GSceneConverter.FromGScene(file, out var problems);
+                    if (problems?.Count > 0)
+                        loadNotes.Add(file + " :: " + string.Join(" | ", problems));
+                    scene.OriginalScene.Path = outFile;
+                    GSceneConverter.Write(scene);
+                    bool same = File.ReadAllBytes(outFile).AsSpan().SequenceEqual(File.ReadAllBytes(file));
+                    results.Add((same ? "SAME " : "DIFF ") + file);
+                }
+                catch (Exception ex)
+                {
+                    results.Add("FAIL " + file + " " + ex.ToString().Replace(Environment.NewLine, " | "));
+                }
+            }
+            File.WriteAllLines(listPath + ".results", results);
+            File.WriteAllLines(listPath + ".notes", loadNotes);
+            Environment.Exit(0);
+        }
+
+        /// <summary>Copies X_DX11.NXG_TEXTURES, X_DX11.GSC.RES and the like from beside <paramref name="from"/> to beside <paramref name="to"/>, renamed, unless they're there already.</summary>
+        private static IEnumerable<string> CopyCompanions(string from, string to, string? skip = null)
+        {
+            string? fromDir = Path.GetDirectoryName(from), toDir = Path.GetDirectoryName(to);
+            if (string.IsNullOrEmpty(fromDir) || string.IsNullOrEmpty(toDir) || from.StartsWith("dat:") || !Directory.Exists(fromDir))
+                yield break;
+            string fromStem = Path.GetFileNameWithoutExtension(from), toStem = Path.GetFileNameWithoutExtension(to);
+            foreach (var file in Directory.EnumerateFiles(fromDir, fromStem + ".*"))
+            {
+                string rest = Path.GetFileName(file)[fromStem.Length..]; // ".NXG_TEXTURES", ".GSC.RES"...
+                if (rest.Equals(Path.GetExtension(from), StringComparison.OrdinalIgnoreCase) || rest.Equals(skip, StringComparison.OrdinalIgnoreCase) || rest.EndsWith(".bak", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string target = Path.Combine(toDir, toStem + rest);
+                if (File.Exists(target) || string.Equals(Path.GetFullPath(file), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+                    continue;
+                File.Copy(file, target);
+                yield return $"Copied {Path.GetFileName(file)} beside it as {Path.GetFileName(target)}.";
+            }
+        }
 
         /// <summary>Takes back the scene's last mesh replacement (single part or a parts OBJ), on the render thread.</summary>
         public void UndoMeshReplace(EditorScene scene)
@@ -98,6 +232,15 @@ namespace Diorama.Rendering
             Camera = new Camera(Vector3.Zero);
             CameraController = new CameraController(Camera);
 
+            // the LOD picker and Breakup toggle only show while a character is open
+            Scenes.CollectionChanged += (_, _) => RenderOptions.AnyCharacter = Scenes.Any(s =>
+                s.CharacterLodCount > 1 || s.SpecialObjects.OfType<EditorSpecialObject>().Any(o => o.IsBreakup));
+            Scenes.CollectionChanged += (_, _) => Dispatcher.UIThread.Post(() =>
+            {
+                OnPropertyChanged(nameof(AnyMinifigPart));
+                OnPropertyChanged(nameof(NoScenes));
+            });
+
             SafeRestructure = new RelayCommand<IHierarchySelectable>(async (IHierarchySelectable? sender) =>
             {
                 SelectedHierarchyObject = null;
@@ -119,7 +262,17 @@ namespace Diorama.Rendering
                     sender.OriginalScene.Path = outputPath;
                 }
 
-                GSceneConverter.Write(sender);
+                SaveScene(sender, null);
+            });
+
+            SaveSceneAsCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
+            {
+                if (sender == null) return;
+                string path = sender.OriginalScene.Path;
+                string extension = !string.IsNullOrEmpty(path) ? Path.GetExtension(path) : "gsc";
+                string? outputPath = await MainWindow?.OpenSaveMenu("Save GScene As", extension);
+                if (outputPath == null) return;
+                SaveScene(sender, outputPath);
             });
 
             RemoveSceneCommand = new RelayCommand<EditorScene>((EditorScene? sender) =>
@@ -237,40 +390,24 @@ namespace Diorama.Rendering
 
             SaveTexturesCommand = new RelayCommand<EditorScene>(async (EditorScene? sender) =>
             {
+                if (sender?.OriginalTextures == null) return;
+
                 string path = sender.OriginalTextures.Path;
-
-                bool hasPath = !string.IsNullOrEmpty(path);
-                string extension = hasPath ? Path.GetExtension(path) : "nxg_textures";
-
-                if (!hasPath || path.StartsWith("dat:"))
+                if (string.IsNullOrEmpty(path) || path.StartsWith("dat:"))
                 {
-                    string outputPath = await MainWindow?.OpenSaveMenu("Save Nxg_Textures", extension);
-
-                    if (outputPath == null) return;
-
-                    sender.OriginalTextures.Path = outputPath;
+                    path = await MainWindow?.OpenSaveMenu("Save Nxg_Textures", "nxg_textures");
+                    if (path == null) return;
                 }
 
-                var nxg_textures = sender.OriginalTextures;
-
-                int newTextureCount = sender.Textures.Count;
-
-                var rebuiltSet = new NuTextureSet(nxg_textures.TextureSet.Version, nxg_textures.TextureSet.ConversionDate);
-                rebuiltSet.Textures = new NuTexture[newTextureCount];
-                rebuiltSet.TextureHeaders = new List<NuTexGenHdr>();
-
-                for (int i = 0; i < newTextureCount; i++)
+                var notes = new List<string>();
+                try
                 {
-                    rebuiltSet.Textures[i] = sender.Textures[i].Original;
-                    rebuiltSet.TextureHeaders.Add(sender.Textures[i].Original.Header);
+                    SaveTextures(sender, path, notes);
+                    ShowMessageDialog("Textures saved", notes.Select(n => "• " + n));
                 }
-
-                sender.OriginalTextures.TextureSet = rebuiltSet;
-
-                using (RawFile file = RawFile.Create(sender.OriginalTextures.Path))
+                catch (Exception ex)
                 {
-                    SchemaSerializer schema = new SchemaSerializer(file, true);
-                    sender.OriginalTextures.Handle(schema, 0);
+                    ShowMessageDialog("Could not save the textures", [ex.Message]);
                 }
             });
         }
@@ -280,6 +417,15 @@ namespace Diorama.Rendering
         }
 
         private readonly Queue<Action> glQueue = new();
+
+        /// <summary>
+        /// Whether a shared minifig part (CHARS\SUPER_CHARACTER: the base minifig, hair, hats, capes...) is open. Those draw
+        /// white, because the game colours them per character; nothing in the part's own file says so.
+        /// </summary>
+        public bool AnyMinifigPart => Scenes.Any(s => (s.OriginalScene?.Path ?? "").Replace('/', '\\').Contains(@"\SUPER_CHARACTER\", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>Nothing is open yet: the inspector says how to open a file.</summary>
+        public bool NoScenes => Scenes.Count == 0;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged(
@@ -344,7 +490,7 @@ namespace Diorama.Rendering
             {
                 EditorScene scene = GSceneConverter.FromGScene(path, out List<string> problems);
                 Scenes.Add(scene);
-                CameraController.FrameScene(scene);
+                CameraController.FrameScenes(Scenes); // all of them, for several pieces of one area
                 ShowSceneLoadProblems(problems);
             }
         }
