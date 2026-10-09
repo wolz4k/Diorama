@@ -135,7 +135,7 @@ namespace Diorama.Editor
                             joints[i] = new[] { common, common, common, common };
                         }
                     rigid += vertices.Count - weighted.Count;
-                    rigidJoint = target.CharacterData[0].JointData[common].Name;
+                    rigidJoint = common < target.CharacterData[0].JointData.Count ? target.CharacterData[0].JointData[common].Name : "the model itself";
                 }
                 IEnumerable<int> Uses(int vertex) => joints[vertex].Where((j, k) => Weights(vertices[vertex])[k] > 0 || k == 0);
 

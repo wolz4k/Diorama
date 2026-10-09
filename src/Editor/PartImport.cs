@@ -37,6 +37,8 @@ namespace Diorama.Editor
         const int Cell = 512;      // each colour texture gets a cell this size in the packed texture (or its own size, if bigger)
         const int MaxCell = 1024;  // the biggest texture packed
         const int MaxSize = 4096;  // the biggest packed texture
+        const int MaxTiled = 2048; // the biggest a repeating texture's laid-out repeats get
+        const float Slack = 0.1f;  // UVs this far past a texture's edge are held at it (it looks the same)
         const int Align = 32;      // texture page bits are copied in 32-pixel squares, so their blocks line up down to mip 3
 
         enum Kind { Plain, Texture, Page }
@@ -121,24 +123,47 @@ namespace Diorama.Editor
 
             // Cells as big as its biggest texture (512 at least), one per texture, then spare ones for the page bits
             // (and white): as few cells to a side as fit them all, up to a 4096 texture.
-            int cell = Math.Max(Cell, cells.Select(c => Math.Max(sourceTex[c].Width, sourceTex[c].Height)).DefaultIfEmpty(Cell).Max());
+            // Textures that repeat (UVs past 0..1, beyond a little slack that clamping hides) get their repeats laid out
+            // side by side in their cell, so the UVs can still run over them, as long as that fits a cell.
+            var tiles = new Dictionary<int, (int U0, int V0, int U, int V)>();
+            foreach (int c in cells)
+            {
+                var uvs = Meshes(source).Where(m => kinds.TryGetValue(m.Material, out var k) && k.Kind == Kind.Texture && k.Texture == c)
+                    .SelectMany(m => OBJConverter.ReadVertices(m.Mesh)).Select(v => (v.UVSet01.X, v.UVSet01.Y)).ToList();
+                int u0 = (int)Math.Floor(uvs.Min(x => x.X) + Slack), u1 = Math.Max(u0 + 1, (int)Math.Ceiling(uvs.Max(x => x.X) - Slack));
+                int v0 = (int)Math.Floor(uvs.Min(x => x.Y) + Slack), v1 = Math.Max(v0 + 1, (int)Math.Ceiling(uvs.Max(x => x.Y) - Slack));
+                var t = sourceTex[c];
+                if ((u1 - u0) * t.Width > MaxTiled || (v1 - v0) * t.Height > MaxTiled)
+                {
+                    notes.Add($"{Path.GetFileName(t.Header.Name)} repeats {u1 - u0}x{v1 - v0} times, more than fits; it's shown once, held at its edges.");
+                    (u0, u1, v0, v1) = (0, 1, 0, 1);
+                }
+                tiles[c] = (u0, v0, u1 - u0, v1 - v0);
+            }
+            static int Pow2(int n) { int p = 1; while (p < n) p *= 2; return p; }
+            int cell = Math.Max(Cell, cells.Select(c => Pow2(Math.Max(sourceTex[c].Width * tiles[c].U, sourceTex[c].Height * tiles[c].V))).DefaultIfEmpty(Cell).Max());
             int perSide = 0;
+            // a texture that doesn't fill its cell leaves its corner white, so without page bits no spare cell is needed
+            int roomy = cells.FindIndex(c => sourceTex[c].Width * tiles[c].U <= cell - Align || sourceTex[c].Height * tiles[c].V <= cell - Align);
+            int needed = bits.Count == 0 && roomy >= 0 ? cells.Count : cells.Count + 1;
             for (int side = 1; side * cell <= MaxSize && perSide == 0; side *= 2)
-                if (side * side > cells.Count && PackBits(bits, Enumerable.Range(cells.Count, side * side - cells.Count).Select(i => (i % side * cell, i / side * cell)).ToList(), cell))
+                if (side * side >= needed && (bits.Count == 0 || side * side > cells.Count) && PackBits(bits, Enumerable.Range(cells.Count, side * side - cells.Count).Select(i => (i % side * cell, i / side * cell)).ToList(), cell))
                     perSide = side;
             if (perSide == 0 && bits.Count > 0)
             {
                 notes.Add("The bits of the LEGO texture page it uses don't fit in the packed texture, so those parts are plain colour.");
                 page = null; bits.Clear();
+                needed = roomy >= 0 ? cells.Count : cells.Count + 1;
                 for (int side = 1; side * cell <= MaxSize && perSide == 0; side *= 2)
-                    if (side * side > cells.Count) perSide = side;
+                    if (side * side >= needed) perSide = side;
             }
             if (perSide == 0) throw new InvalidDataException($"Its {cells.Count} textures don't fit in one {MaxSize}x{MaxSize} texture.");
             if (page == null)
                 foreach (var k in kinds.Where(k => k.Value.Kind == Kind.Page).ToList()) kinds[k.Key] = (Kind.Plain, -1);
             int size = perSide * cell;
             (int X, int Y) CellAt(int index) => (index % perSide * cell, index / perSide * cell);
-            var (spareX, spareY) = CellAt(perSide * perSide - 1); // the last cell's last 32 pixels stay white
+            // white: the last cell's last 32 pixels (a spare cell's, or a roomy texture's corner)
+            var (spareX, spareY) = CellAt(perSide * perSide > cells.Count ? perSide * perSide - 1 : roomy);
             Vector2 white = new((spareX + cell - 6) / (float)size, (spareY + cell - 6) / (float)size);
 
             // UVs into the packed texture
@@ -153,10 +178,11 @@ namespace Diorama.Editor
                     Vector2 uv;
                     if (kind == Kind.Texture)
                     {
-                        if (u < -0.01f || u > 1.01f || w < -0.01f || w > 1.01f) clamped++;
+                        var r = tiles[tex];
+                        if (u < r.U0 - Slack || u > r.U0 + r.U + Slack || w < r.V0 - Slack || w > r.V0 + r.V + Slack) clamped++;
                         var (cx, cy) = CellAt(cells.IndexOf(tex));
                         var t = sourceTex[tex];
-                        uv = new((cx + Math.Clamp(u, 0, 1) * t.Width) / size, (cy + Math.Clamp(w, 0, 1) * t.Height) / size);
+                        uv = new((cx + (Math.Clamp(u, r.U0, r.U0 + r.U) - r.U0) * t.Width) / size, (cy + (Math.Clamp(w, r.V0, r.V0 + r.V) - r.V0) * t.Height) / size);
                     }
                     else if (kind == Kind.Page && page != null)
                     {
@@ -169,7 +195,7 @@ namespace Diorama.Editor
                 }
                 OBJConverter.SetMeshData(mesh, vertices, OBJConverter.ReadIndices(mesh), source.MeshSceneBlock.Meshes);
             }
-            if (clamped > 0) notes.Add($"{clamped:N0} vertices had UVs outside their texture (repeating); they're held at its edge, so check those spots.");
+            if (clamped > 0) notes.Add($"{clamped:N0} vertices had UVs further out than their texture's repeats; they're held at its edge, so check those spots.");
 
             // the shape and weights
             var moved = PartTransplant.Transplant(source, target, out _);
@@ -209,7 +235,7 @@ namespace Diorama.Editor
             var headers = nxg.TextureSet.Textures.Select(t => t.Header).ToList();
             var diffuse = new NuTexture { Header = Header(headers.ElementAtOrDefault(0), diffName) };
             var normal = new NuTexture { Header = Header(headers.ElementAtOrDefault(1) ?? headers.ElementAtOrDefault(0), nrmName) };
-            PackedTexture(diffuse, sourceTex, cells, fourCC, template, page, bits, perSide, cell, blockBytes);
+            PackedTexture(diffuse, sourceTex, cells, cells.Select(c => (tiles[c].U, tiles[c].V)).ToList(), fourCC, template, page, bits, perSide, cell, blockBytes);
             FlatNormal(normal, template);
             var made = donor.Normal != null ? new[] { diffuse, normal } : new[] { diffuse };
             var own = keepOwn ? nxg.TextureSet.Textures : Array.Empty<NuTexture>();
@@ -423,6 +449,7 @@ namespace Diorama.Editor
         /// </summary>
         static bool PackBits(List<Bit> bits, List<(int X, int Y)> spare, int cell)
         {
+            if (bits.Count == 0) return true;
             if (spare.Count == 0) return false;
             int at = 0, x = 0, y = 0, row = 0;
             foreach (var bit in bits.OrderByDescending(b => b.H).ThenByDescending(b => b.W))
@@ -469,7 +496,7 @@ namespace Diorama.Editor
         /// The packed texture, block by block: each cell's texture copied as it is (all of them compressed the same way),
         /// the page bits copied into the spare cell, white elsewhere, at every mip level down to 1x1.
         /// </summary>
-        static void PackedTexture(NuTexture into, NuTexture[] textures, List<int> cells, uint fourCC, NuTexture template, NuTexture? page, List<Bit> bits, int perSide, int Cell, int blockBytes)
+        static void PackedTexture(NuTexture into, NuTexture[] textures, List<int> cells, List<(int U, int V)> repeats, uint fourCC, NuTexture template, NuTexture? page, List<Bit> bits, int perSide, int Cell, int blockBytes)
         {
             int size = perSide * Cell, levels = (int)Math.Log2(size) + 1;
             var white = WhiteBlock(blockBytes);
@@ -488,8 +515,8 @@ namespace Diorama.Editor
                         {
                             var t = textures[cells[cell]];
                             int tw = (t.Width >> l) / 4, th = (t.Height >> l) / 4;
-                            if (tw == 0 || th == 0 || l >= t.MipCount || lx >= tw || ly >= th) { data.AddRange(white); continue; }
-                            data.AddRange(t.Data.AsSpan(Offset(t.Width, t.Height, l, blockBytes) + (ly * tw + lx) * blockBytes, blockBytes).ToArray());
+                            if (tw == 0 || th == 0 || l >= t.MipCount || lx >= tw * repeats[cell].U || ly >= th * repeats[cell].V) { data.AddRange(white); continue; }
+                            data.AddRange(t.Data.AsSpan(Offset(t.Width, t.Height, l, blockBytes) + (ly % th * tw + lx % tw) * blockBytes, blockBytes).ToArray());
                             continue;
                         }
                         // the spare cell: a page bit if this block is in one (while the bits stay block-aligned)
