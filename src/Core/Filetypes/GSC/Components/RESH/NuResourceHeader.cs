@@ -27,6 +27,25 @@ namespace Diorama.Core.Filetypes.GSC.Components.RESH
         private string FileName;
         private byte Discipline;
 
+        /// <summary>
+        /// Gives the files this header lists new paths (<paramref name="rename"/> gets and returns them as the tree has
+        /// them: lower case, backslashes), rebuilding the tree and pointing each reference at its file's new place.
+        /// </summary>
+        public void RenameFiles(Func<string, string> rename)
+        {
+            var files = FileTree.FilesInOrder();
+            var newPaths = files.Select(f => rename(f.Path)).ToList();
+            var tree = NuFileTree.FromPaths(newPaths, FileTree.Version);
+            var bySegment = files.Select((f, i) => (f.Segment, New: newPaths[i])).ToDictionary(x => x.Segment, x => x.New);
+            foreach (var reference in References)
+                if (bySegment.TryGetValue((int)reference.Hash, out var path))
+                    reference.Hash = (uint)tree.PathIndexes[path];
+            FileTree = tree;
+        }
+
+        /// <summary>The paths of the files this header lists.</summary>
+        public List<string> Files() => FileTree.FilesInOrder().Select(f => f.Path).ToList();
+
         public void Handle(SchemaSerializer schema, uint parentVersion)
         {
             using (schema.HandleRegion())

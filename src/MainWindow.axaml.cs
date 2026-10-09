@@ -211,7 +211,7 @@ namespace Diorama
             File.WriteAllText("openhistory.txt", sceneLocation.SerializedString);
         }
 
-        public async Task<string?> OpenSaveMenu(string title, string extension)
+        public async Task<string?> OpenSaveMenu(string title, string extension, string? suggestedName = null)
         {
             if (StorageProvider == null)
                 throw new Exception("Unable to access filesystem");
@@ -220,6 +220,7 @@ namespace Diorama
             {
                 Title = title,
                 DefaultExtension = extension,
+                SuggestedFileName = suggestedName,
                 FileTypeChoices = [new FilePickerFileType(extension) { Patterns = [$"*.{extension.TrimStart('.')}"] }]
             });
 

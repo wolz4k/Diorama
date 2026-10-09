@@ -129,6 +129,13 @@ namespace Diorama.Core.Filetypes.GSC.Components.RESH
             }
         }
 
+        /// <summary>The files listed (segment index and path), in the order the tree numbers them.</summary>
+        public List<(int Segment, string Path)> FilesInOrder()
+        {
+            var files = GetIndexedFiles();
+            return files.OrderBy(f => Segments[f.Key].FileIndex).ThenBy(f => f.Key).Select(f => (f.Key, f.Value)).ToList();
+        }
+
         public Dictionary<string, short> PathIndexes;
 
         public static NuFileTree FromPaths(IEnumerable<string> paths, uint versionToUse)
