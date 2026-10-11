@@ -236,6 +236,41 @@ namespace Diorama.Tests
             Assert.IsTrue(vertices.All(v => v.Position.Y >= special.Min.Y - 0.001f && v.Position.Y <= special.Max.Y + 0.001f), "bounds hold the new shape");
         }
 
+        /// <summary>
+        /// LEGO Marvel Super Heroes 2's Iron Man helmet (what Mark 47 wears; tried in game): white in its model, coloured by
+        /// its .CD's textures (a dark red, the faceplate mask) and glow (the eyes); its shell and faceplate hang rigidly on
+        /// joints (Root, Visor_Jnt) and are stored where those joints are. Kept on its own skeleton, so the faceplate can
+        /// open; everything in the base's first mesh (Stunt Rider's helmet's second one keeps positions apart).
+        /// </summary>
+        [TestMethod]
+        public void HelmetWithCdTexturesGlowAndOwnSkeleton()
+        {
+            string lmsh2 = @"D:\Games\LMSH2", tex = Path.Combine(lmsh2, @"CHARS\SUPER_CHARACTER_TEXTURE");
+            string source = Path.Combine(lmsh2, @"CHARS\SUPER_CHARACTER\IRONMAN_HELMET\SKINNEDHAT_IRONMANMK43_DX11.GHG");
+            string basepart = Path.Combine(Game, @"CHARS\SUPER_CHARACTER\SKINNEDHAT\SKINNEDHAT_STUNTRIDER_DX11.GHG");
+            if (!File.Exists(source) || !File.Exists(basepart)) Assert.Inconclusive("needs LEGO Marvel Super Heroes 2 and this game");
+            string dir = Path.Combine(Path.GetTempPath(), "DioramaPartImport", @"CHARS\SUPER_CHARACTER\SKINNEDHAT");
+            Directory.CreateDirectory(dir);
+            string output = Path.Combine(dir, "SKINNEDHAT_IRONMAN47_DX11.GHG");
+            string red = Path.Combine(tex, @"LEGO_COLOUR\LEGO_DARKRED_DX11.TEX");
+            var notes = PartImport.Build(source, basepart, output,
+                new Dictionary<int, string> { [0] = red, [2] = red, [1] = Path.Combine(tex, @"HAT\IRONMANMARK43_MASK_DX11.TEX") },
+                new Dictionary<int, string> { [1] = Path.Combine(tex, @"HAT\IRONMANMARK43_MASK_GLOW_DX11.TEX") }, keepSkeleton: true);
+            foreach (var n in notes) Console.WriteLine(n);
+            var model = Load(output);
+            CollectionAssert.AreEqual(new[] { "IronManHelmet", "Root", "Visor_Jnt" }, model.CharacterData[0].JointData.Select(j => j.Name).ToArray(), "its own skeleton");
+            var drawn = PartTransplant.MeshesOf(model, 0).Where(m => !m.Breakup && m.Mesh.VerticesCount > 3).ToList();
+            Assert.AreEqual(1, drawn.Count, "all in the first mesh");
+            CollectionAssert.IsSubsetOf(new byte[] { 1, 2 }, drawn[0].Mesh.SkinMtxMap, "shell on Root, faceplate on Visor_Jnt");
+            var vertices = OBJConverter.ReadVertices(drawn[0].Mesh);
+            Assert.IsTrue(vertices.All(v => v.Position.Y > -0.12f && v.Position.Y < 0.08f), "placed where its joints are, on the head (not stored joint-relative)");
+            Assert.IsTrue(vertices.All(v => v.ColorSet0.X > 0.99f), "no vertex colours of its own: white, so the texture shows");
+            var material = model.MaterialBlock.Materials[drawn[0].Material];
+            Assert.IsTrue(material.Diffuse1Index >= 0 && material.materialFlags_glow > 0 && material.KGlow > 0.5f, "the eyes glow");
+            Assert.IsTrue(material.IsDecal == 0 && material.IsDeferredDecal == 0, "not a decal (see-through)");
+            Assert.AreEqual(-1, material.TexAnimData1, "no texture scrolling borrowed");
+        }
+
         /// <summary>The game's resource-header files read and write back unchanged, and renaming keeps every file listed.</summary>
         [TestMethod]
         public void ResourceFilesRename()

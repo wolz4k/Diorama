@@ -28,11 +28,12 @@ namespace Diorama.Editor
 
         /// <summary>
         /// A material of this game's that the part can take: one showing a colour texture (and a normal map, if
-        /// <see cref="Normal"/> is set) and binding no other texture, for vertices laid out like the base part's.
+        /// <see cref="Normal"/> is set, and a glow texture if <see cref="Glow"/> is) and binding no other texture, for
+        /// vertices laid out like the base part's.
         /// </summary>
-        record Donor(string Path, string Material, string? Variant, byte[] Diffuse, byte[]? Normal);
+        record Donor(string Path, string Material, string? Variant, byte[] Diffuse, byte[]? Normal, byte[]? Glow = null, List<byte[]>? Extra = null);
 
-        static readonly Dictionary<(string Root, string Layout, uint Version, string Folder, bool Clear), Donor?> donors = new();
+        static readonly Dictionary<(string Root, string Layout, uint Version, string Folder, bool Clear, bool Glow), Donor?> donors = new();
 
         const int Cell = 512;      // each colour texture gets a cell this size in the packed texture (or its own size, if bigger)
         const int MaxCell = 1024;  // the biggest texture packed
@@ -49,9 +50,13 @@ namespace Diorama.Editor
         /// <summary>
         /// Makes <paramref name="outPath"/> (an X_DX11.GHG) from <paramref name="sourcePath"/> (the other game's part) and
         /// <paramref name="basePath"/> (this game's part of the same kind), with X_DX11.NXG_TEXTURES, X_DX11.PC_SHADERS,
-        /// X_DX11.GHG.RES and X.SHADERS beside it. Returns notes for the modder.
+        /// X_DX11.GHG.RES and X.SHADERS beside it. Returns notes for the modder. <paramref name="textures"/> gives some of the
+        /// other part's materials (by index) a colour texture (.DDS/.TEX) in place of their own: the textures its .CD
+        /// puts on them in its own game (an Iron Man helmet is white, and gets its red and its faceplate from there).
+        /// <paramref name="glows"/> likewise gives materials a glow texture (the .CD's texture slot 1: the helmet's eyes);
+        /// materials with a glow texture of their own keep it.
         /// </summary>
-        public static List<string> Build(string sourcePath, string basePath, string outPath)
+        public static List<string> Build(string sourcePath, string basePath, string outPath, IReadOnlyDictionary<int, string>? textures = null, IReadOnlyDictionary<int, string>? glows = null, bool keepSkeleton = false)
         {
             var source = Load(sourcePath);
             var target = Load(basePath);
@@ -81,6 +86,35 @@ namespace Diorama.Editor
             var sourceTex = NxgTextures.Read(Path.ChangeExtension(sourcePath, ".NXG_TEXTURES"))?.TextureSet?.Textures
                 ?? throw new FileNotFoundException("The other game's part has no .NXG_TEXTURES beside it.");
             var notes = new List<string>();
+            var given = new Dictionary<int, int>();
+            int Loaded(string file)
+            {
+                int at = Array.FindIndex(sourceTex, t => t.Header.Path == file);
+                if (at >= 0) return at;
+                sourceTex = sourceTex.Append(NuTexture.Load(file, new NuTexGenHdr { Name = Path.GetFileNameWithoutExtension(file), Path = file })).ToArray();
+                return sourceTex.Length - 1;
+            }
+            foreach (var (material, file) in textures ?? new Dictionary<int, string>())
+                given[material] = Loaded(file);
+
+            // glow textures (lit bits: eyes, lights), each over its material's colour texture; they need a material of
+            // this game's that shows one, and the colour texture's size and compression, to be packed the same way
+            var glowOf = new Dictionary<int, NuTexture>();
+            float glowStrength = 0;
+            for (int i = 0; i < source.MaterialBlock.Materials.Length; i++)
+            {
+                var m = source.MaterialBlock.Materials[i];
+                int g = glows != null && glows.TryGetValue(i, out var file) ? Loaded(file)
+                    : m is { materialFlags_glow: > 0 } && m.Diffuse1Index >= 0 && m.Diffuse1Index < sourceTex.Length && m.Diffuse1Index != m.Diffuse0Index && !string.IsNullOrEmpty(sourceTex[m.Diffuse1Index].Header.Name) ? m.Diffuse1Index : -1;
+                if (g < 0 || sourceTex[g].Data == null) continue;
+                glowOf[i] = sourceTex[g];
+                glowStrength = Math.Max(glowStrength, m?.KGlow ?? 0);
+            }
+            if (glowOf.Count > 0)
+            {
+                if (FindDonor(gameRoot, layout, main.Version, Path.GetDirectoryName(Path.GetFullPath(basePath))!, glow: true) is { } lit) { donor = lit; donorPath = lit.Path; }
+                else { notes.Add("Its glowing bits don't glow: none of this game's character parts has a material with a glow texture for vertices laid out like this part's."); glowOf.Clear(); }
+            }
 
             // what each of the other part's materials shows: one of its own textures, part of the LEGO page, or plain colour
             var kinds = new Dictionary<int, (Kind Kind, int Texture)>();
@@ -88,7 +122,7 @@ namespace Diorama.Editor
             for (int i = 0; i < source.MaterialBlock.Materials.Length; i++)
             {
                 var m = source.MaterialBlock.Materials[i];
-                int d = m?.Diffuse0Index ?? -1;
+                int d = given.TryGetValue(i, out int g) ? g : m?.Diffuse0Index ?? -1;
                 if (d < 0 || d >= sourceTex.Length || sourceTex[d].Data == null) { kinds[i] = (Kind.Plain, -1); continue; }
                 var t = sourceTex[d];
                 if (string.IsNullOrEmpty(t.Header.Name)) { kinds[i] = (Kind.Page, d); continue; }
@@ -179,8 +213,12 @@ namespace Diorama.Editor
             {
                 var vertices = OBJConverter.ReadVertices(mesh);
                 var (kind, tex) = kinds.TryGetValue(material, out var k) ? k : (Kind.Plain, -1);
+                // vertices laid out without colours read as black; this game's materials multiply by them, so they're white
+                // (the colour is the texture's: Iron Man's helmet came out black)
+                bool uncoloured = source.MaterialBlock.Materials.ElementAtOrDefault(material)?.VertexLayout?.Definitions.All(d => d.Variable != VertexDefinitionVariableEnum.colorSet0) == true;
                 foreach (var v in vertices)
                 {
+                    if (uncoloured) v.ColorSet0 = Vector4.One;
                     float u = v.UVSet01.X, w = v.UVSet01.Y;
                     Vector2 uv;
                     if (kind == Kind.Texture)
@@ -231,7 +269,7 @@ namespace Diorama.Editor
 
             // the shape and weights
             var moved = character
-                ? PartTransplant.Transplant(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot, m => remapped.TryGetValue(m, out var v) ? v : OBJConverter.ReadVertices(m))
+                ? PartTransplant.Transplant(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot, m => remapped.TryGetValue(m, out var v) ? v : OBJConverter.ReadVertices(m), keepSkeleton)
                 : PartTransplant.TransplantRigid(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot, m => remapped.TryGetValue(m, out var v) ? v : OBJConverter.ReadVertices(m));
             notes.AddRange(moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Level") || n.StartsWith("Warning") || n.Contains("weren't weighted")));
 
@@ -248,6 +286,8 @@ namespace Diorama.Editor
                 var copy = pair.FirstOrDefault(m => Layout(m.VertexLayout) == Layout(old.VertexLayout))
                     ?? (old.MaterialName.Contains(":VARIANT") ? pair.Last() : pair[0]);
                 copy.Parent = block;
+                // the donor's texture animation (Silver Banshee's flames scroll) would slide the part's textures around it
+                copy.TexAnimData1 = copy.TexAnimData2 = copy.TexAnimData3 = copy.TexAnimData4 = -1;
                 copy.MaterialName = old.MaterialName;
                 block.Materials[i] = copy;
                 replaced.Add(copy);
@@ -274,6 +314,32 @@ namespace Diorama.Editor
             FlatNormal(normal, template);
             bool withNormal = donorOf.Values.Any(d => d.Normal != null);
             var made = withNormal ? new[] { diffuse, normal } : new[] { diffuse };
+            // the glow texture: each colour texture's cell gets its material's glow texture, the rest black (no glow)
+            NuTexture? glow = null;
+            if (glowOf.Count > 0)
+            {
+                var glowTex = sourceTex.ToArray();
+                foreach (int c in cells)
+                {
+                    var lit = glowOf.Where(g => kinds[g.Key].Texture == c).Select(g => g.Value).FirstOrDefault();
+                    bool fits = lit != null && lit.Width == sourceTex[c].Width && lit.Height == sourceTex[c].Height && lit.FourCC == fourCC && lit.MipCount >= sourceTex[c].MipCount;
+                    glowTex[c] = fits ? lit! : Black(sourceTex[c], blockBytes);
+                    if (lit != null && !fits) notes.Add($"{lit.Header.Name} doesn't glow: it isn't the size and compression of the colour texture it lights ({sourceTex[c].Header.Name}).");
+                }
+                glow = new NuTexture { Header = Header(headers.ElementAtOrDefault(0), prefix + "misc/" + outStem.ToLowerInvariant() + "_glow.nut") };
+                PackedTexture(glow, glowTex, cells, cells.Select(c => Tiny(sourceTex[c], tiles[c]) ? (int.MaxValue, int.MaxValue) : (tiles[c].U, tiles[c].V)).ToList(), fourCC, template, null, new List<Bit>(), perSide, cell, blockBytes, BlackBlock(blockBytes));
+                made = made.Append(glow).ToArray();
+            }
+            int glowAt = glow != null ? (keepOwn ? nxg.TextureSet.Textures.Length : 0) + made.Length - 1 : -1;
+            // textures the donor's material binds besides those (Bane's backpack's shine): copied as they are, checksum
+            // and name, so its bindings still find them
+            var donorTextures = donorOf.Values.Select(d => d.Path).Distinct().ToDictionary(d => d, d => NxgTextures.Read(Path.ChangeExtension(d, ".NXG_TEXTURES")).TextureSet.Textures);
+            var extras = new List<NuTexture>();
+            foreach (var d in donorOf.Values)
+                foreach (var c in d.Extra ?? new())
+                    if (!extras.Any(e => e.Header.Checksum.SequenceEqual(c)) && donorTextures[d.Path].FirstOrDefault(t => t.Header.Checksum.SequenceEqual(c)) is { } extra)
+                        extras.Add(extra);
+            made = made.Concat(extras).ToArray();
             var own = keepOwn ? nxg.TextureSet.Textures : Array.Empty<NuTexture>();
             byte[] textureBytes = nxg.ToBytes(own.Concat(made));
 
@@ -289,11 +355,25 @@ namespace Diorama.Editor
             {
                 var from = donorOf[m];
                 m.Diffuse0Index = own.Length; m.Normal0Index = from.Normal != null ? own.Length + 1 : -1;
+                if (glow != null && from.Glow != null)
+                {
+                    m.Diffuse1Index = glowAt;
+                    if (glowStrength > 0) m.KGlow = glowStrength;
+                }
+                if (from.Extra is { Count: > 0 })
+                {
+                    // its other texture slots name the donor file's textures: the copied ones' places here
+                    int Moved(int index) => index >= 0 && index < donorTextures[from.Path].Length && extras.FindIndex(e => e.Header.Checksum.SequenceEqual(donorTextures[from.Path][index].Header.Checksum)) is var at and >= 0
+                        ? own.Length + made.Length - extras.Count + at : index;
+                    m.Specular0Index = Moved(m.Specular0Index); m.Specular1Index = Moved(m.Specular1Index); m.Specular2 = Moved(m.Specular2); m.Specular3 = Moved(m.Specular3);
+                    m.Diffuse2Index = Moved(m.Diffuse2Index); m.Diffuse3Index = Moved(m.Diffuse3Index); m.EnvMap = Moved(m.EnvMap);
+                }
                 foreach (var list in new[] { m.PixelFixupData, m.VertexFixupData, m.TempVertexFixupData })
                     foreach (var h in list ?? new())
                     {
                         if (h.Checksum.All(x => x == 0)) continue;
-                        var to = h.Checksum.SequenceEqual(from.Diffuse) ? diffuse.Header : from.Normal != null && h.Checksum.SequenceEqual(from.Normal) ? normal.Header : null;
+                        var to = h.Checksum.SequenceEqual(from.Diffuse) ? diffuse.Header : from.Normal != null && h.Checksum.SequenceEqual(from.Normal) ? normal.Header
+                            : glow != null && from.Glow != null && h.Checksum.SequenceEqual(from.Glow) ? glow.Header : null;
                         if (to == null) continue;
                         h.Name = to.Name;
                         h.Checksum = (byte[])to.Checksum.Clone();
@@ -369,10 +449,10 @@ namespace Diorama.Editor
         /// normal map, both stored in its own texture file. Parts in <paramref name="folder"/> (the base part's: capes for
         /// a cape) are looked at first and faces last, as their materials do face things. Remembered per game, layout and folder.
         /// </summary>
-        static Donor? FindDonor(string gameRoot, string layout, uint version, string folder, bool clear = false)
+        static Donor? FindDonor(string gameRoot, string layout, uint version, string folder, bool clear = false, bool glow = false)
         {
             lock (donors)
-                if (donors.TryGetValue((gameRoot, layout, version, folder, clear), out var known)) return known;
+                if (donors.TryGetValue((gameRoot, layout, version, folder, clear, glow), out var known)) return known;
             Donor? found = null, withoutNormal = null;
             string first = Path.Combine(gameRoot, DonorScene);
             static bool IsFace(string f) => f.Contains(@"\FACE", StringComparison.OrdinalIgnoreCase) || f.Contains(@"\SUPER_FACE", StringComparison.OrdinalIgnoreCase);
@@ -394,20 +474,29 @@ namespace Diorama.Editor
                     if (textures == null) break;
                     var diffuse = m.Diffuse0Index < textures.Length ? textures[m.Diffuse0Index] : null;
                     var normal = m.Normal0Index >= 0 && m.Normal0Index < textures.Length ? textures[m.Normal0Index] : null;
+                    // a glowing one: its second colour texture is its glow (Silver Banshee's flames, in DC Super-Villains)
+                    var lit = glow && m.materialFlags_glow > 0 && m.Diffuse1Index >= 0 && m.Diffuse1Index < textures.Length && m.Diffuse1Index != m.Diffuse0Index ? textures[m.Diffuse1Index] : null;
+                    if (glow && (lit == null || string.IsNullOrEmpty(lit.Header.Name))) continue;
+                    // a decal (drawn over what's behind it, Silver Banshee's flames) makes the part see-through
+                    if (m.IsDecal != 0 || m.IsDeferredDecal != 0) continue;
                     // both in its own texture file (not the shared LEGO page), so the bindings can be pointed at ours
                     if (diffuse == null || string.IsNullOrEmpty(diffuse.Header.Name) || (m.Normal0Index >= 0 && (normal == null || string.IsNullOrEmpty(normal.Header.Name)))) continue;
                     var child = m.ChildMaterial as NuMaterialData_E0;
                     var bound = new[] { m, child }.Where(x => x != null).SelectMany(x => new[] { x!.PixelFixupData, x.VertexFixupData, x.TempVertexFixupData })
                         .SelectMany(l => l ?? new()).Where(h => h.Checksum.Any(b => b != 0)).ToList();
                     if (!bound.Any(h => h.Checksum.SequenceEqual(diffuse.Header.Checksum))) continue;
-                    if (!bound.All(h => h.Checksum.SequenceEqual(diffuse.Header.Checksum) || (normal != null && h.Checksum.SequenceEqual(normal.Header.Checksum)))) continue;
-                    var donor = new Donor(file, m.MaterialName, child?.MaterialName, diffuse.Header.Checksum, normal?.Header.Checksum);
+                    if (lit != null && !bound.Any(h => h.Checksum.SequenceEqual(lit.Header.Checksum))) continue;
+                    var others = bound.Where(h => !(h.Checksum.SequenceEqual(diffuse.Header.Checksum) || (normal != null && h.Checksum.SequenceEqual(normal.Header.Checksum)) || (lit != null && h.Checksum.SequenceEqual(lit.Header.Checksum))))
+                        .Select(h => h.Checksum).ToList();
+                    // a glowing one may bind fixed textures too (a shine), copied along; each needs to be in its texture file
+                    if (others.Count > 0 && (!glow || !others.All(c => textures.Any(t => t.Data != null && !string.IsNullOrEmpty(t.Header.Name) && t.Header.Checksum.SequenceEqual(c))))) continue;
+                    var donor = new Donor(file, m.MaterialName, child?.MaterialName, diffuse.Header.Checksum, normal?.Header.Checksum, lit?.Header.Checksum, others.Count > 0 ? others : null);
                     if (normal != null) { found = donor; break; }
                     withoutNormal ??= donor;
                 }
                 if (found != null) break;
             }
-            lock (donors) return donors[(gameRoot, layout, version, folder, clear)] = found ?? withoutNormal;
+            lock (donors) return donors[(gameRoot, layout, version, folder, clear, glow)] = found ?? withoutNormal;
         }
 
         static GScene_4F Load(string path)
@@ -541,6 +630,19 @@ namespace Diorama.Editor
             return offset;
         }
 
+        static byte[] BlackBlock(int blockBytes) => blockBytes == 8 ? new byte[8] : new byte[] { 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+        /// <summary>A black texture the size and compression of <paramref name="like"/> (a cell with nothing glowing).</summary>
+        static NuTexture Black(NuTexture like, int blockBytes)
+        {
+            var block = BlackBlock(blockBytes);
+            int blocks = 0;
+            for (int l = 0; l < like.MipCount; l++) blocks += Math.Max(1, (like.Width >> l) / 4) * Math.Max(1, (like.Height >> l) / 4);
+            var data = new byte[blocks * blockBytes];
+            for (int k = 0; k < blocks; k++) block.CopyTo(data, k * blockBytes);
+            return new NuTexture { Header = like.Header, Width = like.Width, Height = like.Height, MipCount = like.MipCount, FourCC = like.FourCC, Data = data, ImageHeader = like.ImageHeader };
+        }
+
         static byte[] WhiteBlock(int blockBytes) => blockBytes == 8
             ? new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0 }
             : new byte[] { 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0 };
@@ -549,10 +651,10 @@ namespace Diorama.Editor
         /// The packed texture, block by block: each cell's texture copied as it is (all of them compressed the same way),
         /// the page bits copied into the spare cell, white elsewhere, at every mip level down to 1x1.
         /// </summary>
-        static void PackedTexture(NuTexture into, NuTexture[] textures, List<int> cells, List<(int U, int V)> repeats, uint fourCC, NuTexture template, NuTexture? page, List<Bit> bits, int perSide, int Cell, int blockBytes)
+        static void PackedTexture(NuTexture into, NuTexture[] textures, List<int> cells, List<(int U, int V)> repeats, uint fourCC, NuTexture template, NuTexture? page, List<Bit> bits, int perSide, int Cell, int blockBytes, byte[]? fill = null)
         {
             int size = perSide * Cell, levels = (int)Math.Log2(size) + 1;
-            var white = WhiteBlock(blockBytes);
+            var white = fill ?? WhiteBlock(blockBytes); // what's left over: white (black for a glow texture)
             // the first texture's 1x1, for the levels where the cells are smaller than a block
             var tail = cells.Count > 0 ? textures[cells[0]].Data.AsSpan(textures[cells[0]].Data.Length - blockBytes, blockBytes).ToArray() : white;
             var data = new List<byte>();

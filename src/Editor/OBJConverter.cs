@@ -417,6 +417,12 @@ namespace Diorama.Editor
         /// mesh always gets buffers of its own.</param>
         public static void SetMeshData(NuRenderMesh nuMesh, IReadOnlyList<Vertex> vertices, ushort[] indices, NuRenderMesh[]? allMeshes)
         {
+            // New vertices put in front of shared buffers take the same number of places in each of the mesh's buffers (a
+            // mesh may keep its positions in one and the rest in another), each 128-byte aligned: a vertex is the same
+            // place in all of them. (Padding each to its own stride left Stunt Rider's helmet's two buffers 16 vertices
+            // apart, and the meshes after it stretched across the screen in game.)
+            int unit = nuMesh.VertexBuffers.Select(b => Lcm(Math.Max(1, b.Stride), 128) / Math.Max(1, b.Stride)).Aggregate(1, Lcm);
+            int frontVertices = (vertices.Count + unit - 1) / unit * unit;
             for (int i = 0; i < nuMesh.VertexBuffers.Length; i++)
             {
                 var old = nuMesh.VertexBuffers[i];
@@ -429,8 +435,7 @@ namespace Diorama.Editor
                 bool first = allMeshes == null || Array.IndexOf(allMeshes, nuMesh) < sharers.Select(m => Array.IndexOf(allMeshes, m)).DefaultIfEmpty(int.MaxValue).Min();
                 if (sharers.Count > 0 && first && nuMesh.VertexBufferOffsets[i] == 0)
                 {
-                    int block = Lcm(old.Stride, 128); // keeps every offset a whole vertex and 128-byte aligned, as the game's are
-                    int front = (fresh.VerticesDump.Length + block - 1) / block * block;
+                    int front = frontVertices * old.Stride; // every offset a whole vertex and 128-byte aligned, as the game's are
                     var dump = new byte[front + old.VerticesDump.Length];
                     fresh.VerticesDump.CopyTo(dump, 0);
                     old.VerticesDump.CopyTo(dump, front);

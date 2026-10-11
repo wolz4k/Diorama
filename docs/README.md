@@ -74,7 +74,7 @@ For a rigid part, start from the base's `RIGIDHAT_...` `.CD` instead: set its *S
 
 Metallic and bump finishes from the other game don't come along, and neither do its animations, so a gadget the other game swings into place (the Blaster backpack's gun) stays in its rest pose. If the textures can't be brought (formats that differ, a base with no texture coordinates or no material for its layout), only the shape comes into the open model, as below, and the report says why: keep this game's materials, *Undo Mesh Replacement* takes it back, and **Save GScene As...** puts it in your mod. Capes aren't supported yet: a complex cape's layers and blend shapes make the game crash when it moves.
 
-Tried in game (LEGO Marvel's Avengers into LEGO DC Super-Villains): Falcon's wings; Peggy Carter's hat and hair; Mach-5's and Citizen V's armour; the Blaster backpack, with its see-through lens; Iron Man's helmet (rigid).
+Tried in game (LEGO Marvel's Avengers into LEGO DC Super-Villains): Falcon's wings; Peggy Carter's hat and hair; Mach-5's and Citizen V's armour; the Blaster backpack, with its see-through lens; Iron Man's helmet (rigid). From LEGO Marvel Super Heroes 2: Mark 47's helmet, with its faceplate on its own joint and the red, gold and glowing eyes its `.CD` gives it (`PartImport.Build`'s `textures`, `glows` and `keepSkeleton`); animating the faceplate also needs its own skeleton file and animation set (see the Flux notes).
 
 ## Supported Games
 
