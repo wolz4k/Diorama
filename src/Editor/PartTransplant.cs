@@ -50,6 +50,147 @@ namespace Diorama.Editor
             return list;
         }
 
+        /// <summary>
+        /// The meshes of a character LOD hung rigidly on a joint by their layer (not skinned), with that joint: their
+        /// vertices are stored relative to it.
+        /// </summary>
+        static Dictionary<NuRenderMesh, int> HangJoints(GScene_4F scene, int lod)
+        {
+            var hangs = new Dictionary<NuRenderMesh, int>();
+            var data = scene.CharacterData[lod];
+            var display = scene.DisplayScene;
+            var meshes = scene.MeshSceneBlock.Meshes;
+            foreach (var md in data.LayerMetadata)
+            {
+                if (md.Type != 0 || md.JointIndex == 255 || md.SpecialIndex < 0 || md.SpecialIndex >= display.SpecialObjects.Count) continue;
+                var special = display.SpecialObjects[md.SpecialIndex];
+                if (special.ClipObjectIndex >= display.ClipObjects.Count) continue;
+                foreach (var el in display.ClipObjects[(int)special.ClipObjectIndex].Elements)
+                {
+                    int index = display.DisplayItems is { Count: > 0 } items
+                        ? (el.OldGeometryIndex >= 0 && el.OldGeometryIndex < items.Count && items[el.OldGeometryIndex].Command == DisplayCommand.Mesh ? (int)items[el.OldGeometryIndex].Index : -1)
+                        : el.MeshIndex;
+                    if (index >= 0 && index < meshes.Length && meshes[index].SkinMtxMap is not { Count: > 0 }) hangs.TryAdd(meshes[index], (int)md.JointIndex);
+                }
+            }
+            return hangs;
+        }
+
+        static Matrix4x4 ToMatrix(NuMtx m) => new(m.mtx[0], m.mtx[1], m.mtx[2], m.mtx[3], m.mtx[4], m.mtx[5], m.mtx[6], m.mtx[7],
+            m.mtx[8], m.mtx[9], m.mtx[10], m.mtx[11], m.mtx[12], m.mtx[13], m.mtx[14], m.mtx[15]);
+
+        /// <summary>A character part's (joints and LODs) rather than a rigid one's (a hat or hair: no joints, a clip object per level of detail).</summary>
+        public static bool IsCharacter(GScene_4F scene) => scene.CharacterData.Count > 0;
+
+        /// <summary>How many levels of detail the part has: a character's LODs, or a rigid part's clip objects (the first the least detailed).</summary>
+        public static int Levels(GScene_4F scene) => IsCharacter(scene) ? scene.CharacterData.Count : scene.DisplayScene.ClipObjects.Count;
+
+        /// <summary>The meshes a level draws, with their materials: a character LOD's (<see cref="MeshesOf"/>) or a rigid part's clip object's.</summary>
+        public static List<(NuRenderMesh Mesh, int Material, bool Breakup)> Drawn(GScene_4F scene, int level)
+        {
+            if (IsCharacter(scene)) return MeshesOf(scene, level);
+            var list = new List<(NuRenderMesh, int, bool)>();
+            var display = scene.DisplayScene;
+            var meshes = scene.MeshSceneBlock.Meshes;
+            if (level < 0 || level >= display.ClipObjects.Count) return list;
+            foreach (var el in display.ClipObjects[level].Elements)
+            {
+                if (display.DisplayItems is { Count: > 0 } items)
+                {
+                    if (el.OldGeometryIndex >= 0 && el.OldGeometryIndex < items.Count && items[el.OldGeometryIndex].Command == DisplayCommand.Mesh && items[el.OldGeometryIndex].Index < meshes.Length)
+                        list.Add((meshes[items[el.OldGeometryIndex].Index], el.OldMaterialIndex, false));
+                }
+                else if (el.MeshIndex >= 0 && el.MeshIndex < meshes.Length)
+                    list.Add((meshes[el.MeshIndex], el.MaterialIndex, false));
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Replaces a rigid part's geometry (a hat's, hair's) with another rigid part's, level by level (a level the source
+        /// lacks takes its last one): each level's first mesh gets the source's solid pieces, its other meshes are emptied,
+        /// and pieces drawn with a material in <paramref name="separate"/> go into a mesh of their own drawn with
+        /// <paramref name="separateMaterial"/>. The part's bounds are refreshed, as the game culls by them.
+        /// </summary>
+        public static List<string> TransplantRigid(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1, Func<NuRenderMesh, Vertex[]>? read = null)
+        {
+            var changedMeshes = new List<NuRenderMesh>();
+            changed = changedMeshes;
+            var notes = new List<string>();
+            var done = new HashSet<NuRenderMesh>();
+            var display = target.DisplayScene;
+            var everything = new List<Vector3>();
+            int sourceLevels = Levels(source);
+            if (sourceLevels == 0) throw new InvalidDataException("The other part draws nothing.");
+            for (int level = 0; level < Levels(target); level++)
+            {
+                var from = Drawn(source, Math.Min(level, sourceLevels - 1));
+                var own = Drawn(target, level).Select(m => m.Mesh).Distinct().Where(m => !done.Contains(m)).ToList();
+                if (own.Count == 0 || from.Count == 0) continue;
+                var solid = new List<Vertex>();
+                var solidIndices = new List<ushort>();
+                var clear = new List<Vertex>();
+                var clearIndices = new List<ushort>();
+                foreach (var (mesh, material, _) in from.DistinctBy(m => m.Mesh))
+                {
+                    bool apart = separate != null && separateMaterial >= 0 && separate.Contains(material);
+                    var (into, indices) = apart ? (clear, clearIndices) : (solid, solidIndices);
+                    int start = into.Count;
+                    into.AddRange((read ?? OBJConverter.ReadVertices)(mesh).Select(Moved));
+                    indices.AddRange(OBJConverter.ReadIndices(mesh).Select(i => (ushort)(i + start)));
+                }
+                if (solid.Count > ushort.MaxValue || clear.Count > ushort.MaxValue)
+                    throw new InvalidDataException($"Level {level} has {Math.Max(solid.Count, clear.Count):N0} vertices in one mesh, more than one mesh can hold (65,535).");
+                everything.AddRange(solid.Concat(clear).Select(v => v.Position));
+
+                var all = target.MeshSceneBlock.Meshes;
+                var sample = solid.Concat(clear).First();
+                if (solid.Count > 0)
+                {
+                    OBJConverter.SetMeshData(own[0], solid, solidIndices.ToArray(), all);
+                    changedMeshes.Add(own[0]);
+                }
+                else Empty(own[0], sample, all);
+                done.Add(own[0]);
+                foreach (var extra in own.Skip(1))
+                {
+                    Empty(extra, sample, all);
+                    changedMeshes.Add(extra);
+                    done.Add(extra);
+                }
+                if (clear.Count > 0)
+                {
+                    var clip = display.ClipObjects[level];
+                    int ownIndex = Array.IndexOf(all, own[0]);
+                    var element = clip.Elements.First(e => e.MeshIndex == ownIndex);
+                    var mesh = MeshLike(own[0]);
+                    target.MeshSceneBlock.Meshes = all.Append(mesh).ToArray();
+                    OBJConverter.SetMeshData(mesh, clear, clearIndices.ToArray(), null);
+                    var added = CopyElement(element);
+                    added.MeshIndex = (short)(target.MeshSceneBlock.Meshes.Length - 1);
+                    added.MaterialIndex = (short)separateMaterial;
+                    clip.Elements = clip.Elements.Append(added).ToArray();
+                    changedMeshes.Add(mesh);
+                    done.Add(mesh);
+                }
+                notes.Add($"Level {level}: {from.Count} piece{(from.Count == 1 ? "" : "s")} of {solid.Count + clear.Count:N0} vertices and {(solidIndices.Count + clearIndices.Count) / 3:N0} triangles{(clear.Count > 0 ? $" ({clearIndices.Count / 3:N0} see-through, in a mesh of their own)" : "")}.");
+            }
+            if (changedMeshes.Count == 0) throw new InvalidDataException("Neither model has geometry to move.");
+
+            // the game culls a part by its special object's box and sphere
+            var min = new Vector3(everything.Min(p => p.X), everything.Min(p => p.Y), everything.Min(p => p.Z));
+            var max = new Vector3(everything.Max(p => p.X), everything.Max(p => p.Y), everything.Max(p => p.Z));
+            var centre = (min + max) / 2;
+            float radius = everything.Max(p => Vector3.Distance(p, centre));
+            foreach (var special in display.SpecialObjects.Where(sp => sp.ClipObjectIndex < display.ClipObjects.Count))
+            {
+                special.Min = new Vector4(min, 1);
+                special.Max = new Vector4(max, 1);
+                special.Sphere = new Vector4(centre, radius);
+            }
+            return notes;
+        }
+
         /// <summary>The layer a character model draws its parts on (bit mask, as a part's .CD "Default Layers" names it), or 0.</summary>
         public static int LayerMask(GScene_4F scene)
         {
@@ -70,8 +211,11 @@ namespace Diorama.Editor
         /// meshes and the breakup parts are emptied, so nothing of the old part shows. Returns notes for the modder and
         /// the meshes changed (to redraw). The source's meshes drawn with a material in <paramref name="separate"/> (see-through
         /// ones) go into meshes of their own, added to the model and drawn with <paramref name="separateMaterial"/>.
+        /// <paramref name="read"/> gives the source's vertices (with UVs already moved, say), in place of reading its meshes.
+        /// With <paramref name="keepSkeleton"/> the model takes the source's skeleton too, so the other game's animations
+        /// for it (an Iron Man helmet's faceplate opening) can find its joints.
         /// </summary>
-        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1)
+        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1, Func<NuRenderMesh, Vertex[]>? read = null, bool keepSkeleton = false)
         {
             var changedMeshes = new List<NuRenderMesh>();
             changed = changedMeshes;
@@ -82,6 +226,17 @@ namespace Diorama.Editor
             var targetJoints = target.CharacterData[0].JointData.Select(j => j.Name ?? "").ToList();
             var sourceJoints = source.CharacterData[0].JointData.Select(j => j.Name ?? "").ToList();
             var missing = sourceJoints.Where(n => !targetJoints.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (keepSkeleton)
+                for (int lod = 0; lod < target.CharacterData.Count; lod++)
+                {
+                    var from = source.CharacterData[Math.Min(lod, source.CharacterData.Count - 1)];
+                    var into = target.CharacterData[lod];
+                    into.JointData = from.JointData; into.T = from.T; into.Inv_Wt = from.Inv_Wt; into.JointIxs = from.JointIxs;
+                    into.JointNameHash = from.JointNameHash;
+                    foreach (var md in into.LayerMetadata) if (md.JointIndex != 255 && md.JointIndex >= from.JointData.Count) md.JointIndex = 0;
+                    foreach (var poi in into.PointsOfInterest ?? new()) if (poi.ParentJointIdx >= from.JointData.Count) poi.ParentJointIdx = 0;
+                }
+            if (keepSkeleton) missing.Clear();
             var jointMap = MapJoints(source.CharacterData[0].JointData, target.CharacterData[0].JointData);
 
             var notes = new List<string>();
@@ -105,14 +260,37 @@ namespace Diorama.Editor
                 // every vertex with the joints (of this model) its weights name
                 var vertices = new List<Vertex>();
                 var joints = new List<int[]>();
+                var hung = new Dictionary<int, int>(); // rigid vertex -> the joint (of this model) its piece hangs on
                 var triangles = new List<int>();
                 var clear = new List<int>();
+                var hangs = HangJoints(source, Math.Min(lod, source.CharacterData.Count - 1));
+                var sourceData = source.CharacterData[0];
                 foreach (var mesh in from)
                 {
                     int start = vertices.Count;
                     var into = apart.Contains(mesh) ? clear : triangles;
-                    foreach (var v in OBJConverter.ReadVertices(mesh))
+                    // A rigid piece hung on a joint by its layer (an Iron Man helmet's shell and faceplate) is stored where
+                    // that joint is: it's moved to where the joint sits at rest, and goes on it.
+                    Matrix4x4? place = null;
+                    int hangOn = -1;
+                    if (hangs.TryGetValue(mesh, out int hang) && hang < sourceData.Inv_Wt.Count && Matrix4x4.Invert(ToMatrix(sourceData.Inv_Wt[hang]), out var atRest))
                     {
+                        place = atRest;
+                        var (mine, by) = hang < jointMap.Length ? jointMap[hang] : (0, null);
+                        if (by != null) usedMissing.Add($"{sourceJoints[hang]} (follows {by})");
+                        hangOn = mine;
+                    }
+                    foreach (var read1 in (read ?? OBJConverter.ReadVertices)(mesh))
+                    {
+                        var v = read1;
+                        if (place is { } m && !(v.BlendWeights.X > 0 || v.BlendWeights.Y > 0 || v.BlendWeights.Z > 0 || v.BlendWeights.W > 0))
+                        {
+                            v = Copy(v);
+                            v.Position = Vector3.Transform(v.Position, m);
+                            v.Normal = Vector3.TransformNormal(v.Normal, m);
+                            v.Tangent = Vector3.TransformNormal(v.Tangent, m);
+                            hung[vertices.Count] = hangOn;
+                        }
                         int Joint(ushort i)
                         {
                             int joint = mesh.SkinMtxMap is { Count: > 0 } map ? map[Math.Min(i, map.Count - 1)] : i;
@@ -137,8 +315,9 @@ namespace Diorama.Editor
                     for (int i = 0; i < vertices.Count; i++)
                         if (!Weights(vertices[i]).Any(w => w > 0))
                         {
+                            int on = hung.TryGetValue(i, out int h) ? h : common;
                             vertices[i].BlendWeights = new Vector4(1, 0, 0, 0);
-                            joints[i] = new[] { common, common, common, common };
+                            joints[i] = new[] { on, on, on, on };
                         }
                     rigid += vertices.Count - weighted.Count;
                     rigidJoint = common < target.CharacterData[0].JointData.Count ? target.CharacterData[0].JointData[common].Name : "the model itself";
@@ -158,7 +337,9 @@ namespace Diorama.Editor
                     {
                         if (room > 0 && need.Count > room) throw new InvalidDataException($"A triangle of LOD {lod} is weighted to {need.Count} joints; a mesh holds {room}.");
                         var fits = groups.Where(g => room == 0 || g.Joints.Union(need).Count() <= room).OrderBy(g => need.Count(j => !g.Joints.Contains(j))).ToList();
-                        var group = fits.Count > 0 && (need.All(fits[0].Joints.Contains) || groups.Count >= most || room == 0) ? fits[0] : default;
+                        // the first mesh takes all it can: the base's other meshes may be stored or drawn differently
+                        // (Stunt Rider's helmet's second mesh keeps positions apart; the faceplate stretched in game there)
+                        var group = fits.Count > 0 ? fits[0] : default;
                         if (group.Triangles == null) groups.Add(group = (new List<int>(), new List<int>()));
                         group.Triangles.AddRange(tris.Skip(t * 3).Take(3));
                         foreach (int j in need) if (!group.Joints.Contains(j)) group.Joints.Add(j);
@@ -176,7 +357,7 @@ namespace Diorama.Editor
                     {
                         if (!local.TryGetValue(vertex, out var at))
                         {
-                            var v = Copy(vertices[vertex]);
+                            var v = Moved(vertices[vertex]);
                             var w = Weights(v);
                             ushort Slot(int k) => room > 0 ? (ushort)Math.Max(0, w[k] > 0 || k == 0 ? palette.IndexOf(joints[vertex][k]) : 0) : (ushort)joints[vertex][k];
                             v.BlendIndices = new VectorI4(Slot(0), Slot(1), Slot(2), Slot(3));
@@ -262,6 +443,8 @@ namespace Diorama.Editor
                 if (done[i]) return map[i];
                 done[i] = true; // a loop in the parents ends here
                 int own = to.FindIndex(j => string.Equals(j.Name, from[i].Name, StringComparison.OrdinalIgnoreCase));
+                // or the same name without a joint suffix (an Iron Man helmet's Visor_Jnt is this game's hats' visor)
+                if (own < 0) own = to.FindIndex(j => string.Equals(Bare(j.Name), Bare(from[i].Name), StringComparison.OrdinalIgnoreCase));
                 if (own >= 0) map[i] = (own, null);
                 else if (from[i].ParentIndex == 255 || from[i].ParentIndex >= from.Count) map[i] = (top, null);
                 else { var (parent, _) = Map(from[i].ParentIndex); map[i] = (parent, to[parent].Name); }
@@ -270,6 +453,8 @@ namespace Diorama.Editor
             for (int i = 0; i < from.Count; i++) Map(i);
             return map;
         }
+
+        static string Bare(string? name) => System.Text.RegularExpressions.Regex.Replace(name ?? "", "_?(jnt|joint)$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         /// <summary>The clip object and element that draw <paramref name="mesh"/> in a LOD (this game's layout), or nulls.</summary>
         static (NuClipObject? Clip, NuClipItem? Element) FindElement(GScene_4F scene, int lod, NuRenderMesh mesh)
@@ -309,6 +494,19 @@ namespace Diorama.Editor
             CentreExtents = (System.Numerics.Vector4[])like.CentreExtents.Clone(),
             DensityDiscDiameter = like.DensityDiscDiameter,
         };
+
+        /// <summary>
+        /// A source vertex to write into this model, its colour bytes kept as the other game stored them (the game wants
+        /// them so): vertices are read in stored order but written with red and blue swapped (VertexList holds colours as
+        /// RGBA, for OBJ import), so they're swapped here first. Tried in game: Iron Man's helmet and the Blaster's lens
+        /// came out blue, not red, otherwise.
+        /// </summary>
+        static Vertex Moved(Vertex v)
+        {
+            var copy = Copy(v);
+            copy.ColorSet0 = new Vector4(v.ColorSet0.Z, v.ColorSet0.Y, v.ColorSet0.X, v.ColorSet0.W);
+            return copy;
+        }
 
         static Vertex Copy(Vertex v) => new Vertex
         {
