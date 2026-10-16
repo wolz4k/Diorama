@@ -23,6 +23,7 @@ out vec2 uvSets[4];
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform float depth_pull;
 
 uniform int diffuse0_uvset;
 uniform int diffuse1_uvset;
@@ -38,7 +39,10 @@ vec3 ResolveNormalised(vec3 normalised)
 
 void main()
 {
-    gl_Position = vec4(aPosition, 1.0) * model * view * projection;
+    // Pulled towards the camera by the material's depth bias (a face's eyes and mouth over the mask they lie under).
+    vec4 viewPos = vec4(aPosition, 1.0) * model * view;
+    viewPos.xyz -= normalize(viewPos.xyz) * depth_pull;
+    gl_Position = viewPos * projection;
 
     vec4 worldPos = vec4(aPosition, 1.0) * model;
     FragPos = worldPos.xyz;

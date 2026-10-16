@@ -12,7 +12,8 @@ using System.Text.Json;
 namespace Diorama.Editor
 {
     /// <summary>A body part's look, as Flux's CharacterLooks writes it: material number, tint (#RRGGBB) and textures.</summary>
-    public record LookMaterial(int Id, string? Tint, List<string> Textures, List<int>? Slots = null, List<string?>? Tints = null);
+    public record LookMaterial(int Id, string? Tint, List<string> Textures, List<int>? Slots = null, List<string?>? Tints = null,
+        string? Remap = null, string? RemapMaterial = null);
 
     /// <summary>A part a character wears: its model (.GHG, or .GSC plus the object in it), locator, tint and own materials' tints.</summary>
     public record LookPart(string Name, string? Model, string? Object, int Locator, int? Layer, string? Tint, List<LookMaterial> Materials);
@@ -45,6 +46,9 @@ namespace Diorama.Editor
 
         /// <summary>The .CD's material numbers for the head front and back.</summary>
         const int HeadFront = 1, HeadBack = 2;
+
+        /// <summary>The .CD's material number for what's attached to the torso (additional models, wings).</summary>
+        const int AttachmentMaterial = 13;
 
         /// <summary>The face LOD shown: the detailed ones rest with the mouth open (the game closes it by animating), the simplest smiles.</summary>
         const int FaceLod = 3;
@@ -81,7 +85,13 @@ namespace Diorama.Editor
                 || name.StartsWith("ZHead", StringComparison.OrdinalIgnoreCase);
             foreach (var material in body.Materials)
                 if (MaterialIds.TryGetValue(Key(material.Name), out int id) && byId.TryGetValue(id, out var m))
-                    Paint(material, m, problems);
+                {
+                    // A remapped material takes the remap's textures only when the .CD gives it no colour texture of its own
+                    // (Black Adam's chest); otherwise the remap is just its shader (Cyborg's glow, Gentleman Ghost's haze).
+                    if (m.Remap != null && !m.Textures.Any(t => !Name(t).Contains("BRDF") && !Name(t).Contains("_NRM"))) Remap(material, m, problems);
+                    // A body material the .CD gives textures but no colour is white under them (Jinx's robe).
+                    else Paint(material, m.Tint == null && m.Textures.Count > 0 ? m with { Tint = "#FFFFFF" } : m, problems);
+                }
             scenes.Add(body);
 
             var poiIxs = (body.OriginalScene as GScene_4F)?.CharacterData.FirstOrDefault()?.PoiIxs;
@@ -120,7 +130,14 @@ namespace Diorama.Editor
                 scene.DepthBias = true;
                 // On its locator, whose number picks one of the body's points of interest. A skinned part (face, hair,
                 // cape) hangs from its root bone, so the root's own bind pose is taken off first.
-                if (poiIxs != null && part.Locator >= 0 && part.Locator < poiIxs.Count && poiIxs[part.Locator] < body.PoIs.Count
+                // An additional model (no locator) is skinned to the body's own skeleton and laid out on its layers
+                // (Black Manta's helmet and backpack): it stands where the body does, showing what the body shows.
+                if (part.Locator < 0)
+                {
+                    scene.SceneTransform = body.SceneTransform;
+                    scene.ShownLayers = body.ShownLayers;
+                }
+                else if (poiIxs != null && part.Locator < poiIxs.Count && poiIxs[part.Locator] < body.PoIs.Count
                     && body.PoIs[poiIxs[part.Locator]] is EditorPointOfInterest poi)
                 {
                     var root = scene.AllJoints.OfType<EditorJoint>().FirstOrDefault()?.WorldTransform ?? Matrix4.Identity;
@@ -131,14 +148,17 @@ namespace Diorama.Editor
                 var tint = Colour(part.Tint) ?? Vector4.One;
                 // A part named straight by its scene (no .CD of its own, like Joker's hair) takes the attachment's tint.
                 // (That tint colours the whole part, tintable flag or not: Arsenal's cap is black by it.)
-                if (part.Materials.Count == 0 && tint is not { X: > 0.9f, Y: > 0.9f, Z: > 0.9f })
-                    foreach (var material in scene.Materials.Where(x => !x.Name.Contains("TRANSPARENT", StringComparison.OrdinalIgnoreCase)))
+                if (!part.Materials.Any(m => m.Tint != null || m.Textures.Any(t => !Name(t).Contains("BRDF"))) && tint is not { X: > 0.9f, Y: > 0.9f, Z: > 0.9f })
+                    foreach (var material in scene.Materials.Where(x => !SeeThrough(x)))
                         Tint(material, tint);
                 // A face's tintable bits (Batman's stubble) are the skin under the head's mask: its layer 2 tint.
                 if (part.Layer == HeadLayer && !part.Materials.Any(m => m.Tint != null || m.Textures.Count > 0) && SkinOf(byId) is { } skin)
                     foreach (var material in scene.Materials.Where(Tintable))
                         Tint(material, skin);
-                foreach (var m in part.Materials)
+                // An additional model is coloured by the .CD's material 13, the attachment one (Creeper's red collar, quivers).
+                var partMaterials = part.Locator < 0 && byId.TryGetValue(AttachmentMaterial, out var attachment)
+                    ? new List<LookMaterial> { attachment } : part.Materials;
+                foreach (var m in partMaterials)
                 {
                     // A face's own texture (Bane's mask, on material 1: the head front) goes on its face model, over the head's colour.
                     if (m.Textures.Count > 0 && part.Layer == HeadLayer)
@@ -148,10 +168,20 @@ namespace Diorama.Editor
                         continue;
                     }
                     // A rigid part's textured material (Riddler's bowler: green with its "?") is painted like a body part.
+                    // Its number is the scene's material index (Johnny Quick's helmet is 0, its see-through visor 1).
                     if (m.Textures.Count > 0 && part.Object != null)
                     {
-                        foreach (var material in scene.Materials.Where(x => !x.Name.Contains("TRANSPARENT", StringComparison.OrdinalIgnoreCase)))
+                        var own = m.Id >= 0 && m.Id < scene.Materials.Count ? Key(scene.Materials[m.Id].Name) : null;
+                        foreach (var material in scene.Materials.Where(x => own != null
+                            ? Key(x.Name).Equals(own, StringComparison.OrdinalIgnoreCase)
+                            : !SeeThrough(x)))
+                        {
                             Paint(material, m, problems);
+                            // Its other layer tints still colour the parts its vertex colours pick (Johnny Quick's yellow wings).
+                            for (int k = 1; m.Tints != null && k < m.Tints.Count && k < 4; k++)
+                                if (Colour(m.Tints[k]) is { } layerTint && !IsWhite(layerTint * tint))
+                                    SetLayerColour(material, k, layerTint * tint);
+                        }
                         continue;
                     }
                     // A part's layer tints go in its materials' colour slots, which the shader blends by the vertex colours:
@@ -159,7 +189,7 @@ namespace Diorama.Editor
                     // Flash's hat is red with yellow ears; Catwoman's cowl is black with its goggle frame white (layer 2).
                     // Only the tintable materials when the part has some (Catwoman's goggle frame isn't), else all (the Flash's hat).
                     var tints = m.Tints ?? new List<string?> { m.Tint };
-                    var opaque = scene.Materials.Where(x => !x.Name.Contains("TRANSPARENT", StringComparison.OrdinalIgnoreCase)).ToList();
+                    var opaque = scene.Materials.Where(x => !SeeThrough(x)).ToList();
                     var targets = opaque.Any(Tintable) ? opaque.Where(Tintable) : opaque;
                     foreach (var material in targets)
                         for (int k = 0; k < tints.Count && k < 4; k++)
@@ -176,7 +206,14 @@ namespace Diorama.Editor
         /// not see-through (lenses keep their own colour).
         /// </summary>
         static bool Tintable(EditorMaterial material) => material.Original.materialFlags_tintable != 0
-            && !material.Name.Contains("TRANSPARENT", StringComparison.OrdinalIgnoreCase);
+            && !SeeThrough(material);
+
+        /// <summary>
+        /// A lens or visor, which keeps its own colour: HAT_JOHNNY_TRANSPARENT_MAT, or Gentleman Ghost's goggles ("Glass",
+        /// the top hat's only tintable materials; the hat itself isn't flagged but is coloured).
+        /// </summary>
+        static bool SeeThrough(EditorMaterial material) => material.Name.Contains("TRANSPARENT", StringComparison.OrdinalIgnoreCase)
+            || material.Name.Split(':')[0].Equals("Glass", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// The skin under a head's mask: the head front's layer 2 tint, when it's set (not plain white). Null otherwise,
@@ -215,6 +252,8 @@ namespace Diorama.Editor
         {
             string key = name.Split(':')[0];
             if (key.StartsWith("DX11_", StringComparison.OrdinalIgnoreCase) || key.StartsWith("NXG_", StringComparison.OrdinalIgnoreCase)) key = key[(key.IndexOf('_') + 1)..];
+            // A remap scene's copy is BODY_FRONT_GAME_DX11.
+            if (key.EndsWith("_DX11", StringComparison.OrdinalIgnoreCase)) key = key[..^5];
             if (key.EndsWith("_GAME", StringComparison.OrdinalIgnoreCase)) key = key[..^5];
             return key;
         }
@@ -225,14 +264,14 @@ namespace Diorama.Editor
         /// paints its own colours; a mask (_MAIN, _SKIN) is coloured by its slot's layer tint (Batman's head: the black
         /// mask, then the skin of his chin). Shine (_BRDF, slot 4) and bump textures aren't drawn.
         /// </summary>
-        static void Paint(EditorMaterial material, LookMaterial look, List<string> problems)
+        static void Paint(EditorMaterial material, LookMaterial look, List<string> problems, List<DecodedImage>? over = null)
         {
             var baseTint = Colour(look.Tint);
             var layers = look.Textures
                 .Select((path, i) => (Path: path, Slot: look.Slots != null && i < look.Slots.Count ? look.Slots[i] : 0))
-                .Where(t => t.Slot < 4 && !Name(t.Path).Contains("_BRDF") && !Name(t.Path).Contains("_NRM"))
+                .Where(t => t.Slot < 4 && !Name(t.Path).Contains("BRDF") && !Name(t.Path).Contains("_NRM"))
                 .OrderBy(t => t.Slot).ToList();
-            if (layers.Count == 0)
+            if (layers.Count == 0 && (over == null || over.Count == 0))
             {
                 if (baseTint is { } plain)
                 {
@@ -250,18 +289,23 @@ namespace Diorama.Editor
                 if (image == null) problems.Add($"Couldn't read {System.IO.Path.GetFileName(path)}.");
                 else images.Add((image, slot, Mask(path)));
             }
+            if (over != null) images.AddRange(over.Select((image, k) => (image, 1 + k, false)));
             if (images.Count == 0) return;
             int width = images.Max(i => i.Image.Width), height = images.Max(i => i.Image.Height);
             var rgba = new byte[width * height * 4];
             var under = baseTint ?? Vector4.One;
+            // A slot 0 texture is the base layer itself, coloured by layer 1's tint, with nothing under it (Captain Cold's
+            // goggles: white in the texture, cyan by the tint, see-through around them).
+            bool hasBase = images.Any(i => i.Slot == 0);
             for (int p = 0; p < width * height; p++)
             {
                 rgba[p * 4] = (byte)(under.X * 255); rgba[p * 4 + 1] = (byte)(under.Y * 255); rgba[p * 4 + 2] = (byte)(under.Z * 255);
-                rgba[p * 4 + 3] = (byte)(baseTint == null ? 0 : 255);
+                rgba[p * 4 + 3] = (byte)(baseTint == null || hasBase ? 0 : 255);
             }
             foreach (var (image, slot, mask) in images)
             {
-                var tint = mask && look.Tints != null && slot < look.Tints.Count ? Colour(look.Tints[slot]) ?? Vector4.One : Vector4.One;
+                var tint = slot == 0 ? under
+                    : mask && look.Tints != null && slot < look.Tints.Count ? Colour(look.Tints[slot]) ?? Vector4.One : Vector4.One;
                 for (int y = 0; y < height; y++)
                     for (int x = 0; x < width; x++)
                     {
@@ -273,8 +317,41 @@ namespace Diorama.Editor
                         rgba[to + 3] = Math.Max(rgba[to + 3], image.Rgba[from + 3]);
                     }
             }
-            material.Diffuse0 = RenderTexture.FromRgba(rgba, width, height, System.IO.Path.GetFileName(layers[0].Path));
+            material.Diffuse0 = RenderTexture.FromRgba(rgba, width, height, layers.Count > 0 ? System.IO.Path.GetFileName(layers[0].Path) : look.RemapMaterial ?? "remap");
             material.Colour1 = Vector4.One;
+        }
+
+        /// <summary>
+        /// Draws a body material with another scene's (Source Material Type 1: Black Adam's chest is MATERIAL_REMAP_BLACKADAM's
+        /// BODY_FRONT_GAME, his lightning bolt in its own textures).
+        /// </summary>
+        static void Remap(EditorMaterial material, LookMaterial look, List<string> problems)
+        {
+            EditorScene source;
+            try { source = GSceneConverter.FromGScene(look.Remap!, out _); }
+            catch (Exception ex)
+            {
+                problems.Add($"Couldn't read {System.IO.Path.GetFileName(look.Remap)}: {ex.Message}");
+                return;
+            }
+            string wanted = Key(look.RemapMaterial ?? material.Name);
+            var match = source.Materials.FirstOrDefault(x => Key(x.Name).Equals(wanted, StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                problems.Add($"{System.IO.Path.GetFileName(look.Remap)} has no {look.RemapMaterial}.");
+                return;
+            }
+            // Its textures go over the .CD's colour for the material (Black Adam's bolt and belt on his black chest, on its
+            // second layer; the first is a 4x4 white stand-in).
+            var images = new[] { match.Diffuse0, match.Diffuse1, match.Diffuse2 }
+                .Select(t => t?.Original is { ImageHeader: { } header, Data: { } data } ? DdsDecoder.Decode([.. header, .. data]) : null)
+                .OfType<DecodedImage>().Where(i => i.Width > 4 || i.Height > 4).ToList();
+            if (images.Count == 0)
+            {
+                material.OverridingReference = match;
+                return;
+            }
+            Paint(material, look with { Textures = new(), Slots = new() }, problems, images);
         }
 
         static string Name(string path) => System.IO.Path.GetFileNameWithoutExtension(path).ToUpperInvariant();

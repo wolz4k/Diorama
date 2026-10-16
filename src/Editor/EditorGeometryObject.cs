@@ -256,6 +256,9 @@ namespace Diorama.Editor
             return (packed * 2) - Vector4.One;
         }
 
+        /// <summary>How far (scene units) one unit of a material's depth bias pulls it towards the camera.</summary>
+        const float DepthPullPerBias = 0.0002f;
+
         public void Draw(Shader shader)
         {
             EditorMaterial Material = this.Material;
@@ -272,6 +275,9 @@ namespace Diorama.Editor
             }
 
             shader.SetMatrix4("model", Transform);
+            // A material's own depth bias (KDepthBias): the game stacks a face's features this way, all lying on the same
+            // surface just under its mask (the Flash's mask 2, eyes 5, pupils 6, mouth 10), so the higher one shows.
+            shader.SetFloat("depth_pull", Material.Original.KDepthBias * Material.Original.KDepthBiasScale * DepthPullPerBias);
 
             shader.SetVector4("preview_tint", Material.PreviewTint);
             shader.SetVector4("diffuse0_color", Material.Colour1);
