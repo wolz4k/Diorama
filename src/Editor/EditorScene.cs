@@ -84,6 +84,10 @@ namespace Diorama.Editor
         public int? FixedLod { get; set; }
         public Func<string, bool>? HiddenObject { get; set; }
 
+        // Drawn slightly in front of what it overlaps: a face's features are a thin shell over the head, whose flat
+        // strips would otherwise cut through them (the game draws faces the same way)
+        public bool DepthBias { get; set; }
+
         /// <summary>
         /// Characters hold every LOD, plus a breakup copy, on top of each other; only the picked LOD and
         /// (if asked for) its breakup parts are shown. A file made only of breakup parts is always shown.

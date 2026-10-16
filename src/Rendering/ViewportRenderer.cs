@@ -200,6 +200,7 @@ namespace Diorama.Rendering
 
                 scene.AddRenderables(ctx);
 
+                SetDepthBias(scene);
                 foreach (var obj in ctx.Opaque)
                 {
                     obj.Draw(blendShader, ctx);
@@ -207,6 +208,7 @@ namespace Diorama.Rendering
                     if (obj == Controller.SelectedHierarchyObject)
                         ctx.HasSelectedObject = true;
                 }
+                SetDepthBias(null);
 
                 ctxs.Add(ctx);
             }
@@ -218,6 +220,7 @@ namespace Diorama.Rendering
             {
                 ctx.Use();
 
+                SetDepthBias(ctx.Scene);
                 foreach (EditorGeometryObject obj in ctx.Transparent)
                 {
                     SetBlendMode(obj.Material.BlendMode);
@@ -225,6 +228,7 @@ namespace Diorama.Rendering
                     if (obj == Controller.SelectedHierarchyObject)
                         ctx.HasSelectedObject = true;
                 }
+                SetDepthBias(null);
                 //Console.WriteLine($"Not Drawn: {ctx.NotDrawn}");
             }
 
@@ -316,6 +320,18 @@ namespace Diorama.Rendering
                 0);
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        }
+
+        /// <summary>Pulls a scene's surfaces towards the camera when it asks for it (a face's features over the head they sit on); null turns it off.</summary>
+        private static void SetDepthBias(EditorScene? scene)
+        {
+            if (scene?.DepthBias == true)
+            {
+                GL.Enable(EnableCap.PolygonOffsetFill);
+                GL.PolygonOffset(-2f, -64f);
+            }
+            else
+                GL.Disable(EnableCap.PolygonOffsetFill);
         }
 
         private static void SetBlendMode(EditorBlendMode blendMode)

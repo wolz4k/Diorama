@@ -106,6 +106,7 @@ namespace Diorama.Editor
                 scene.Name = part.Name;
                 scene.OnlyObject = part.Object;
                 scene.FixedLod = part.Layer == HeadLayer ? FaceLod : GameLod;
+                scene.DepthBias = part.Layer == HeadLayer;
                 // On its locator, whose number picks one of the body's points of interest. A skinned part (face, hair,
                 // cape) hangs from its root bone, so the root's own bind pose is taken off first.
                 if (poiIxs != null && part.Locator >= 0 && part.Locator < poiIxs.Count && poiIxs[part.Locator] < body.PoIs.Count
