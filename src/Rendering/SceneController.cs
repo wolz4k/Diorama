@@ -570,7 +570,15 @@ namespace Diorama.Rendering
         public void AddScene(string path)
         {
             string ext = Path.GetExtension(path).ToLower();
-            if (ext == ".gsc" || ext == ".ghg")
+            if (ext == ".json")
+            {
+                // A character look (flux-cli look): the character put together from its body and parts.
+                var problems = new List<string>();
+                foreach (var part in CharacterAssembler.Assemble(CharacterAssembler.Read(path), problems)) Scenes.Add(part);
+                CameraController.FrameScenes(Scenes);
+                ShowSceneLoadProblems(problems);
+            }
+            else if (ext == ".gsc" || ext == ".ghg")
             {
                 EditorScene scene = GSceneConverter.FromGScene(path, out List<string> problems);
                 Scenes.Add(scene);

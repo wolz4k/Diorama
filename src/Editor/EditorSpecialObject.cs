@@ -23,6 +23,12 @@ namespace Diorama.Editor
 
         public int LODGroup = -1;
 
+        // The character layer it's on (TT5_Head, TT13_Hat…), -1 if none: the character preview shows the layers a .CD lists
+        public int Layer = -1;
+
+        // The joint a rigid (unskinned) character piece hangs on, -1 if none: its vertices are stored relative to it
+        public int HangJoint = -1;
+
         // Part of the brick-by-brick copy a character falls apart into when smashed
         public bool IsBreakup;
     }

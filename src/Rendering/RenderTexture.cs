@@ -293,6 +293,19 @@ namespace Diorama.Rendering
             return offset;
         }
 
+        /// <summary>A texture made from decoded pixels (RGBA, rows top to bottom), not from a scene: the character preview's composited body textures. Render thread only.</summary>
+        public static RenderTexture FromRgba(byte[] rgba, int width, int height, string name)
+        {
+            var texture = new RenderTexture { GscName = name };
+            GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, width, height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, rgba);
+            GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Repeat);
+            return texture;
+        }
+
         /// <param name="shared">Where the pixels are, if <paramref name="texture"/> is only a name (see <see cref="SharedFrom"/>).</param>
         public static RenderTexture FromNuTexture(NuTexture texture, (NuTexture Texture, string Scene)? shared = null)
         {
