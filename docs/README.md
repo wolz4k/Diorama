@@ -86,3 +86,4 @@ Tried in game (LEGO Marvel's Avengers into LEGO DC Super-Villains): Falcon's win
 - LEGO Ninjago
 - LEGO Marvel Super Heroes 2
 - LEGO DC Super-Villains
+- **Characters put together.** Opening a character look (`flux-cli look … --out x.look.json`) builds the character the way the game does: the base body with the layers its `.CD` and parts switch on, each body part painted with the character's textures over its tint, and its face, hat, hair and other parts on their locators, tinted. Flux's character page shows the same view (`UI/Controls/CharacterView`). Rigid pieces hung on a joint (a minifig's hips, hip studs, glasses) now sit at that joint in any character model.

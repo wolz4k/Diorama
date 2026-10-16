@@ -587,6 +587,19 @@ namespace Diorama.Rendering
             }
         }
 
+        /// <summary>
+        /// Shows only this character (replacing whatever was shown), framed; for a preview hosted outside Diorama's
+        /// window, so problems are returned instead of shown in a dialog. Render thread only.
+        /// </summary>
+        public List<string> ShowCharacter(CharacterLook look)
+        {
+            var problems = new List<string>();
+            Scenes.Clear();
+            foreach (var part in CharacterAssembler.Assemble(look, problems)) Scenes.Add(part);
+            CameraController.FrameScenes(Scenes);
+            return problems;
+        }
+
         public void AddScene(GScene gscene, NxgTextures nxg_textures, NxgTextures? cubemap_textures)
         {
             EditorScene scene = GSceneConverter.FromGScene(gscene, nxg_textures, cubemap_textures, out List<string> problems);

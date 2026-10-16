@@ -44,8 +44,10 @@ namespace Diorama.Editor
         /// <summary>The face LOD shown: the detailed ones rest with the mouth open (the game closes it by animating), the simplest smiles.</summary>
         const int FaceLod = 3;
 
-        public static CharacterLook Read(string jsonPath) =>
-            JsonSerializer.Deserialize<CharacterLook>(File.ReadAllText(jsonPath)) ?? throw new InvalidDataException("Not a character look.");
+        public static CharacterLook Read(string jsonPath) => FromJson(File.ReadAllText(jsonPath));
+
+        public static CharacterLook FromJson(string json) =>
+            JsonSerializer.Deserialize<CharacterLook>(json) ?? throw new InvalidDataException("Not a character look.");
 
         /// <summary>The scenes that make up the character: the body first, then its parts.</summary>
         public static List<EditorScene> Assemble(CharacterLook look, List<string> problems)
