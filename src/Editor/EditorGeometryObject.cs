@@ -273,6 +273,7 @@ namespace Diorama.Editor
 
             shader.SetMatrix4("model", Transform);
 
+            shader.SetVector4("preview_tint", Material.PreviewTint);
             shader.SetVector4("diffuse0_color", Material.Colour1);
             shader.SetVector4("diffuse1_color", Material.Colour2);
             shader.SetVector4("diffuse2_color", Material.Colour3);

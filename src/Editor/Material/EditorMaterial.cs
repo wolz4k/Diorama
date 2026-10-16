@@ -44,6 +44,9 @@ namespace Diorama.Editor.Material
         private bool fingerprintChanged = false;
         public bool FingerprintChanged { get => fingerprintChanged; set { Set(ref fingerprintChanged, value); OnPropertyChanged(nameof(Fingerprint)); } }
 
+        /// <summary>A character preview's tint for this material, multiplied into whatever it draws (white: none). Not saved.</summary>
+        public OpenTK.Mathematics.Vector4 PreviewTint { get; set; } = OpenTK.Mathematics.Vector4.One;
+
         public RenderTexture Diffuse0 { get; set; }
         public RenderTexture Diffuse1 { get; set; }
         public RenderTexture Diffuse2 { get; set; }

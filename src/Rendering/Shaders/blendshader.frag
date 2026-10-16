@@ -17,6 +17,9 @@ uniform float time;
 
 uniform vec3 camera;
 
+// a character preview's tint for a part, applied whatever the material's own shading (1 = none)
+uniform vec4 preview_tint;
+
 uniform vec4 diffuse0_color;
 uniform vec4 diffuse1_color;
 uniform vec4 diffuse2_color;
@@ -384,7 +387,7 @@ void main()
             unlitColor *= 0.55 + 0.45 * facing;
         }
 
-        FragColor = vec4(unlitColor, albedoAlpha);
+        FragColor = vec4(unlitColor * preview_tint.rgb, albedoAlpha);
 
         return;
     }
@@ -545,6 +548,7 @@ void main()
     color.rgb += rim * 1.5 * glowAmount;
 
     color.a = albedoAlpha;
+    color.rgb *= preview_tint.rgb;
 
     FragColor = color;
 
