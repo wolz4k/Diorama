@@ -88,7 +88,7 @@ namespace Diorama.Editor
                 {
                     // A remapped material takes the remap's textures only when the .CD gives it no colour texture of its own
                     // (Black Adam's chest); otherwise the remap is just its shader (Cyborg's glow, Gentleman Ghost's haze).
-                    if (m.Remap != null && !m.Textures.Any(t => !Name(t).Contains("BRDF") && !Name(t).Contains("_NRM"))) Remap(material, m, problems);
+                    if (m.Remap != null && !m.Textures.Any(t => !Name(t).Contains("BRDF") && !Name(t).Contains("_NRM") && !Name(t).Contains("_GLOW"))) Remap(material, m, problems);
                     // A body material the .CD gives textures but no colour is white under them (Jinx's robe).
                     else Paint(material, m.Tint == null && m.Textures.Count > 0 ? m with { Tint = "#FFFFFF" } : m, problems);
                 }
@@ -262,14 +262,14 @@ namespace Diorama.Editor
         /// A material in the character's colours, built like the game's layered minifig shader: layer 1's tint, then each
         /// colour texture by slot painted over what's below through its alpha. A colour texture (_DIFF, _ALPHA_DIFF)
         /// paints its own colours; a mask (_MAIN, _SKIN) is coloured by its slot's layer tint (Batman's head: the black
-        /// mask, then the skin of his chin). Shine (_BRDF, slot 4) and bump textures aren't drawn.
+        /// mask, then the skin of his chin). Shine (_BRDF, slot 4), bump and glow textures aren't drawn.
         /// </summary>
         static void Paint(EditorMaterial material, LookMaterial look, List<string> problems, List<DecodedImage>? over = null)
         {
             var baseTint = Colour(look.Tint);
             var layers = look.Textures
                 .Select((path, i) => (Path: path, Slot: look.Slots != null && i < look.Slots.Count ? look.Slots[i] : 0))
-                .Where(t => t.Slot < 4 && !Name(t.Path).Contains("BRDF") && !Name(t.Path).Contains("_NRM"))
+                .Where(t => t.Slot < 4 && !Name(t.Path).Contains("BRDF") && !Name(t.Path).Contains("_NRM") && !Name(t.Path).Contains("_GLOW"))
                 .OrderBy(t => t.Slot).ToList();
             if (layers.Count == 0 && (over == null || over.Count == 0))
             {
