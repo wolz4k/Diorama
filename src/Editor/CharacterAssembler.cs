@@ -33,6 +33,8 @@ namespace Diorama.Editor
             ["HEAD_FRONT"] = 1, ["HEAD_BACK"] = 2, ["BODY_FRONT"] = 3, ["BODY_BACK"] = 4, ["BODY_NECK"] = 3,
             ["RIGHT_ARM"] = 5, ["RIGHT_HAND"] = 6, ["HIPS"] = 7, ["RIGHT_LEG"] = 8, ["GLASSES"] = 9,
             ["LEFT_ARM"] = 24, ["LEFT_LEG"] = 25, ["LEFT_HAND"] = 26,
+            // SUPER_MINIFIG_TPAGE_COMBINED (civilians, goons): one texture page for the whole body, the .CD's material 1
+            ["TPAGE"] = 1, ["GLASSES_LEFT"] = 9, ["GLASSES_RIGHT"] = 9,
         };
 
         /// <summary>The in-game model of the LODs a character carries (0 is the cutscene one).</summary>
