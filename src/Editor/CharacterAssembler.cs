@@ -177,7 +177,16 @@ namespace Diorama.Editor
                     var offset = part.Offset is { Count: 16 } o
                         ? new Matrix4(o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7], o[8], o[9], o[10], o[11], o[12], o[13], o[14], o[15])
                         : Matrix4.Identity;
-                    scene.SceneTransform = root.Inverted() * offset * poi.Transform * (poi.Parent?.WorldTransform ?? Matrix4.Identity) * body.SceneTransform;
+                    // A rigid part's object hangs by its own origin, not where it sat in its file (HAT_BEANIE's p90541_ is 2 cm
+                    // down in its scene; left there it covered Captain Boomerang's eyes).
+                    var placed = Matrix4.Identity;
+                    if (part.Object != null && scene.OriginalScene is GScene_4F partScene
+                        && partScene.DisplayScene.SpecialObjects.FirstOrDefault(x => string.Equals(x.Name, part.Object, StringComparison.OrdinalIgnoreCase)) is { } special)
+                    {
+                        var m = special.Mtx.mtx;
+                        placed = new Matrix4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]).Inverted();
+                    }
+                    scene.SceneTransform = placed * root.Inverted() * offset * poi.Transform * (poi.Parent?.WorldTransform ?? Matrix4.Identity) * body.SceneTransform;
                 }
                 else
                     problems.Add($"{part.Name}'s locator {part.Locator} isn't one of the body's.");
