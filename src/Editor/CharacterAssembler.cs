@@ -260,9 +260,10 @@ namespace Diorama.Editor
 
         /// <summary>
         /// A material in the character's colours, built like the game's layered minifig shader: layer 1's tint, then each
-        /// colour texture by slot painted over what's below through its alpha. A colour texture (_DIFF, _ALPHA_DIFF)
-        /// paints its own colours; a mask (_MAIN, _SKIN) is coloured by its slot's layer tint (Batman's head: the black
-        /// mask, then the skin of his chin). Shine (_BRDF, slot 4), bump and glow textures aren't drawn.
+        /// colour texture by slot painted over what's below through its alpha, times its slot's layer tint as the game's
+        /// shader does: white in most .CDs, so a _DIFF keeps its own colours, while a white mask takes the tint (Batman's
+        /// chin skin; Green Arrow's LEG_CUSTOM_BOOTS, green by his legs' layer 2). Shine (_BRDF, slot 4), bump and glow
+        /// textures aren't drawn.
         /// </summary>
         static void Paint(EditorMaterial material, LookMaterial look, List<string> problems, List<DecodedImage>? over = null)
         {
@@ -305,7 +306,7 @@ namespace Diorama.Editor
             foreach (var (image, slot, mask) in images)
             {
                 var tint = slot == 0 ? under
-                    : mask && look.Tints != null && slot < look.Tints.Count ? Colour(look.Tints[slot]) ?? Vector4.One : Vector4.One;
+                    : look.Tints != null && slot < look.Tints.Count ? Colour(look.Tints[slot]) ?? Vector4.One : Vector4.One;
                 for (int y = 0; y < height; y++)
                     for (int x = 0; x < width; x++)
                     {
