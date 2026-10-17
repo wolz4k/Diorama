@@ -17,7 +17,7 @@ namespace Diorama.Editor
 
     /// <summary>A part a character wears: its model (.GHG, or .GSC plus the object in it), locator, tint and own materials' tints.</summary>
     public record LookPart(string Name, string? Model, string? Object, int Locator, int? Layer, string? Tint, List<LookMaterial> Materials,
-        List<int>? PartLayers = null, Dictionary<int, int>? Specials = null);
+        List<int>? PartLayers = null, Dictionary<int, int>? Specials = null, List<float>? Offset = null);
 
     /// <summary>What a character looks like (Flux's CharacterLook, read from its .CD with every file resolved).</summary>
     public record CharacterLook(string Character, string? Body, List<int> Layers, List<LookMaterial> Materials, List<LookPart> Parts, List<string> Notes);
@@ -158,7 +158,11 @@ namespace Diorama.Editor
                     && body.PoIs[poiIxs[part.Locator]] is EditorPointOfInterest poi)
                 {
                     var root = scene.AllJoints.OfType<EditorJoint>().FirstOrDefault()?.WorldTransform ?? Matrix4.Identity;
-                    scene.SceneTransform = root.Inverted() * poi.Transform * (poi.Parent?.WorldTransform ?? Matrix4.Identity) * body.SceneTransform;
+                    // The attachment's Object Offset places it on the locator (a bigfig's face, scaled onto its big head).
+                    var offset = part.Offset is { Count: 16 } o
+                        ? new Matrix4(o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7], o[8], o[9], o[10], o[11], o[12], o[13], o[14], o[15])
+                        : Matrix4.Identity;
+                    scene.SceneTransform = root.Inverted() * offset * poi.Transform * (poi.Parent?.WorldTransform ?? Matrix4.Identity) * body.SceneTransform;
                 }
                 else
                     problems.Add($"{part.Name}'s locator {part.Locator} isn't one of the body's.");
@@ -178,9 +182,11 @@ namespace Diorama.Editor
                 foreach (var m in partMaterials)
                 {
                     // A face's own texture (Bane's mask, on material 1: the head front) goes on its face model, over the head's colour.
-                    if (m.Textures.Count > 0 && part.Layer == HeadLayer)
+                    if (m.Textures.Count > 0 && IsFace(part))
                     {
-                        var headTint = m.Tint ?? (byId.TryGetValue(HeadFront, out var head) ? head.Tint : null);
+                        // (A minifig's: a bigfig's head has its own colours, and its .CD's material 1 isn't its head; the
+                        // face texture goes on clear, over the head: BANE_BIGFIG's mask on his black head, not green.)
+                        var headTint = m.Tint ?? (part.Layer == HeadLayer && byId.TryGetValue(HeadFront, out var head) ? head.Tint : null);
                         foreach (var material in scene.Materials) Paint(material, m with { Tint = headTint }, problems);
                         continue;
                     }
@@ -212,7 +218,7 @@ namespace Diorama.Editor
                     // A face with none flagged takes no tint: its colours are its own (Simon Baz's skin is brown in its
                     // vertex colours; his .CD's dark brown on top made it black).
                     var targets = opaque.Any(Tintable) ? opaque.Where(Tintable)
-                        : part.Layer == HeadLayer ? Enumerable.Empty<EditorMaterial>() : opaque;
+                        : IsFace(part) ? Enumerable.Empty<EditorMaterial>() : opaque;
                     foreach (var material in targets)
                         for (int k = 0; k < tints.Count && k < 4; k++)
                             if (Colour(tints[k]) is { } layerTint && !IsWhite(layerTint * tint))
@@ -252,6 +258,9 @@ namespace Diorama.Editor
         /// </summary>
         static bool Tintable(EditorMaterial material) => material.Original.materialFlags_tintable != 0
             && !SeeThrough(material);
+
+        /// <summary>A face: on a minifig's head layer, or a bigfig's, which goes on its layer 0 (FACE_BANE on BANE_BIGFIG).</summary>
+        static bool IsFace(LookPart part) => part.Layer == HeadLayer || part.Name.StartsWith("FACE", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// A lens or visor, which keeps its own colour: HAT_JOHNNY_TRANSPARENT_MAT, or Gentleman Ghost's goggles ("Glass",
