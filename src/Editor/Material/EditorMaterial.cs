@@ -47,6 +47,12 @@ namespace Diorama.Editor.Material
         /// <summary>A character preview's tint for this material, multiplied into whatever it draws (white: none). Not saved.</summary>
         public OpenTK.Mathematics.Vector4 PreviewTint { get; set; } = OpenTK.Mathematics.Vector4.One;
 
+        /// <summary>
+        /// Depth bias taken off this material's own (KDepthBias) when drawing: a character preview measures a face's layers
+        /// from its lowest, so the mask stays on the head and only the features rise over it. Not saved.
+        /// </summary>
+        public float DepthBiasBase { get; set; }
+
         public RenderTexture Diffuse0 { get; set; }
         public RenderTexture Diffuse1 { get; set; }
         public RenderTexture Diffuse2 { get; set; }

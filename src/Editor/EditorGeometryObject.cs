@@ -277,7 +277,7 @@ namespace Diorama.Editor
             shader.SetMatrix4("model", Transform);
             // A material's own depth bias (KDepthBias): the game stacks a face's features this way, all lying on the same
             // surface just under its mask (the Flash's mask 2, eyes 5, pupils 6, mouth 10), so the higher one shows.
-            shader.SetFloat("depth_pull", Material.Original.KDepthBias * Material.Original.KDepthBiasScale * DepthPullPerBias);
+            shader.SetFloat("depth_pull", Math.Max(0, Material.Original.KDepthBias * Material.Original.KDepthBiasScale - Material.DepthBiasBase) * DepthPullPerBias);
 
             shader.SetVector4("preview_tint", Material.PreviewTint);
             shader.SetVector4("diffuse0_color", Material.Colour1);

@@ -50,6 +50,9 @@ namespace Diorama.Editor
         /// <summary>The .CD's material number for what's attached to the torso (additional models, wings).</summary>
         const int AttachmentMaterial = 13;
 
+        /// <summary>The .CD's glasses material, and how many depth-bias units the glasses are pulled over the face.</summary>
+        const int Glasses = 9, GlassesPull = 5;
+
         /// <summary>The face LOD shown: the detailed ones rest with the mouth open (the game closes it by animating), the simplest smiles.</summary>
         const int FaceLod = 3;
 
@@ -92,6 +95,10 @@ namespace Diorama.Editor
                     // A body material the .CD gives textures but no colour is white under them (Jinx's robe).
                     else Paint(material, m.Tint == null && m.Textures.Count > 0 ? m with { Tint = "#FFFFFF" } : m, problems);
                 }
+            // The glasses lie just off the head, closer than the face's own pull towards the camera: pulled as well, so the
+            // face doesn't cover them (Kite Man's goggles).
+            foreach (var material in body.Materials.Where(x => MaterialIds.TryGetValue(Key(x.Name), out int id) && id == Glasses))
+                material.DepthBiasBase = -GlassesPull;
             scenes.Add(body);
 
             var poiIxs = (body.OriginalScene as GScene_4F)?.CharacterData.FirstOrDefault()?.PoiIxs;
@@ -128,6 +135,10 @@ namespace Diorama.Editor
                 // Every part is pulled slightly forwards, so a face beats the head it lies on while a hat, pulled as much,
                 // still covers the face by its real depth.
                 scene.DepthBias = true;
+                // Its layers' own depth biases count from its lowest, so a face's mask stays on the head, under Kite Man's
+                // goggles, and only its eyes and mouth rise over the mask.
+                float lowest = scene.Materials.Count > 0 ? scene.Materials.Min(x => x.Original.KDepthBias * x.Original.KDepthBiasScale) : 0;
+                foreach (var material in scene.Materials) material.DepthBiasBase = lowest;
                 // On its locator, whose number picks one of the body's points of interest. A skinned part (face, hair,
                 // cape) hangs from its root bone, so the root's own bind pose is taken off first.
                 // An additional model (no locator) is skinned to the body's own skeleton and laid out on its layers
@@ -190,7 +201,9 @@ namespace Diorama.Editor
                     // Only the tintable materials when the part has some (Catwoman's goggle frame isn't), else all (the Flash's hat).
                     var tints = m.Tints ?? new List<string?> { m.Tint };
                     var opaque = scene.Materials.Where(x => !SeeThrough(x)).ToList();
-                    var targets = opaque.Any(Tintable) ? opaque.Where(Tintable) : opaque;
+                    // A face with none flagged colours just its skin (Simon Baz's MAT_Skin, not his green mask or eyes).
+                    var targets = opaque.Any(Tintable) ? opaque.Where(Tintable)
+                        : part.Layer == HeadLayer && opaque.Any(IsSkin) ? opaque.Where(IsSkin) : opaque;
                     foreach (var material in targets)
                         for (int k = 0; k < tints.Count && k < 4; k++)
                             if (Colour(tints[k]) is { } layerTint && !IsWhite(layerTint * tint))
@@ -207,6 +220,9 @@ namespace Diorama.Editor
         /// </summary>
         static bool Tintable(EditorMaterial material) => material.Original.materialFlags_tintable != 0
             && !SeeThrough(material);
+
+        /// <summary>A face's skin material (MAT_Skin), which takes the face's skin tint.</summary>
+        static bool IsSkin(EditorMaterial material) => material.Name.Contains("SKIN", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// A lens or visor, which keeps its own colour: HAT_JOHNNY_TRANSPARENT_MAT, or Gentleman Ghost's goggles ("Glass",
