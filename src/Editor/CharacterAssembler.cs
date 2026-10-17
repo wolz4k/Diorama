@@ -215,8 +215,12 @@ namespace Diorama.Editor
                             ? Key(x.Name).Equals(own, StringComparison.OrdinalIgnoreCase)
                             : !SeeThrough(x)))
                         {
-                            if (part.Layer is CapeLayer or ComplexCapeLayer) FillLayers(material, m, problems);
-                            else Paint(material, m, problems);
+                            if (part.Layer is CapeLayer or ComplexCapeLayer || FillsOwnLayers(material, m))
+                            {
+                                FillLayers(material, m, problems);
+                                continue;
+                            }
+                            Paint(material, m, problems);
                             // Its other layer tints still colour the parts its vertex colours pick (Johnny Quick's yellow wings).
                             for (int k = 1; m.Tints != null && k < m.Tints.Count && k < 4; k++)
                                 if (Colour(m.Tints[k]) is { } layerTint && !IsWhite(layerTint * tint))
@@ -464,6 +468,25 @@ namespace Diorama.Editor
             for (int k = 0; look.Tints != null && k < look.Tints.Count && k < 3; k++)
                 if (Colour(look.Tints[k]) is { } layerTint)
                     SetLayerColour(material, k, layerTint);
+        }
+
+        /// <summary>
+        /// Whether a .CD material's colour textures past the base go in layers the scene material has (its Diffuse1/2):
+        /// then they're drawn there, each with its own UVs (Riddler's bowler: the "?" is layer 1, on UVs of its own).
+        /// </summary>
+        static bool FillsOwnLayers(EditorMaterial material, LookMaterial look)
+        {
+            var slots = look.Textures
+                .Select((path, i) => (Path: path, Slot: look.Slots != null && i < look.Slots.Count ? look.Slots[i] : 0))
+                .Where(t => !Name(t.Path).Contains("BRDF") && !Name(t.Path).Contains("_NRM") && !Name(t.Path).Contains("_GLOW"))
+                .Select(t => t.Slot).ToList();
+            return slots.Any(s => s > 0) && slots.All(s => s switch
+            {
+                0 => true,
+                1 => material.Original.Diffuse1Index >= 0,
+                2 => material.Original.Diffuse2Index >= 0,
+                _ => false,
+            });
         }
 
         static string Name(string path) => System.IO.Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
