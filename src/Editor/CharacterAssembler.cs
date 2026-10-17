@@ -80,8 +80,9 @@ namespace Diorama.Editor
             var shown = look.Layers.ToHashSet();
             body.ShownLayers = shown.Count > 0 ? shown : null;
             var byId = look.Materials.ToDictionary(m => m.Id);
-            // A head front without a tint of its own is the head's colour (the head back's).
-            if (byId.TryGetValue(HeadFront, out var front) && front.Tint == null && byId.TryGetValue(HeadBack, out var back) && back.Tint != null)
+            // A head front without a tint of its own is the head's colour (the head back's), unless it has its own texture to
+            // show (LMSH2 Kang's face, HEAD_KANGMASK: the purple of his head back would dye it).
+            if (byId.TryGetValue(HeadFront, out var front) && front.Tint == null && front.Textures.Count == 0 && byId.TryGetValue(HeadBack, out var back) && back.Tint != null)
                 byId[HeadFront] = front with { Tint = back.Tint };
             body.FixedLod = GameLod;
             // The x-ray skeleton (shown when electrocuted) and the head's depth-only copy aren't part of the look.
