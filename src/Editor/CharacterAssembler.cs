@@ -17,7 +17,8 @@ namespace Diorama.Editor
 
     /// <summary>A part a character wears: its model (.GHG, or .GSC plus the object in it), locator, tint and own materials' tints.</summary>
     public record LookPart(string Name, string? Model, string? Object, int Locator, int? Layer, string? Tint, List<LookMaterial> Materials,
-        List<int>? PartLayers = null, Dictionary<int, int>? Specials = null, List<float>? Offset = null);
+        List<int>? PartLayers = null, Dictionary<int, int>? Specials = null, List<float>? Offset = null,
+        Dictionary<int, string>? SpecialNames = null);
 
     /// <summary>What a character looks like (Flux's CharacterLook, read from its .CD with every file resolved).</summary>
     public record CharacterLook(string Character, string? Body, List<int> Layers, List<LookMaterial> Materials, List<LookPart> Parts, List<string> Notes);
@@ -129,7 +130,8 @@ namespace Diorama.Editor
                 if (part.Layer is CapeLayer or ComplexCapeLayer)
                 {
                     if (part.PartLayers is { Count: > 0 } partLayers) scene.ShownLayers = partLayers.ToHashSet();
-                    if (part.Specials != null) scene.HiddenObject = NotPicked(scene, part.Specials);
+                    if (part.Specials != null || part.SpecialNames != null)
+                        scene.HiddenObject = NotPicked(scene, part.Specials ?? new(), part.SpecialNames ?? new());
                     CapePose.Hang(scene, problems);
                 }
                 // A face with features (eyes, mouth) shows its simplest smile; a textured face surface (Bane's mask) its game LOD.
@@ -137,6 +139,13 @@ namespace Diorama.Editor
                 // Every part is pulled slightly forwards, so a face beats the head it lies on while a hat, pulled as much,
                 // still covers the face by its real depth.
                 scene.DepthBias = true;
+                // A part's effect objects show only while animated (LMSH2 Iron Man's HelmetEffects_Mesh, the glow of the helmet
+                // forming), unless the part is an effect itself (Gentleman Ghost's torso smoke).
+                if (!part.Name.Contains("EFFECT", StringComparison.OrdinalIgnoreCase))
+                {
+                    var picked = scene.HiddenObject;
+                    scene.HiddenObject = name => name.Contains("Effect", StringComparison.OrdinalIgnoreCase) || picked?.Invoke(name) == true;
+                }
                 // A face's MAT_OCCLUDE only blocks: its open mouth's insides behind it don't show (the bigfigs' detailed faces).
                 foreach (var material in scene.Materials.Where(x => x.Name.Contains("OCCLUDE", StringComparison.OrdinalIgnoreCase)))
                     material.DepthOnly = true;
@@ -193,10 +202,10 @@ namespace Diorama.Editor
                         foreach (var material in scene.Materials) Paint(material, m with { Tint = headTint }, problems);
                         continue;
                     }
-                    // A rigid part's textured material (Riddler's bowler: green with its "?") is painted like a body part, and
-                    // so is a cape's (Black Adam's gold one, CAPE_BLACKADAM; its _ALPHA cut-out isn't drawn). Its number is the
+                    // A part's textured material (Riddler's bowler: green with its "?"; Gamora's hair in LMSH2) is painted like
+                    // a body part, and a cape's fills its layers (Black Adam's gold one, CAPE_BLACKADAM). Its number is the
                     // scene's material index when it has that many (Johnny Quick's helmet is 0, its see-through visor 1).
-                    if (m.Textures.Count > 0 && (part.Object != null || part.Layer is CapeLayer or ComplexCapeLayer))
+                    if (m.Textures.Any(t => !Name(t).Contains("BRDF") && !Name(t).Contains("_NRM") && !Name(t).Contains("_GLOW")))
                     {
                         var own = m.Id >= 0 && m.Id < scene.Materials.Count ? Key(scene.Materials[m.Id].Name) : null;
                         foreach (var material in scene.Materials.Where(x => own != null
@@ -234,21 +243,27 @@ namespace Diorama.Editor
 
         /// <summary>
         /// The objects a part's layer specials leave out: each mask has a bit per object of its layer, in the file's order
-        /// (CAPE_BAT's -4095 sets bit 0 of layer 0: BatCape_Mesh, not the other eleven capes).
+        /// (CAPE_BAT's -4095 sets bit 0 of layer 0: BatCape_Mesh, not the other eleven capes), or a name picks the one
+        /// object (LMSH2's CAPE_SPIDERMAN2099: "Cape_Spiderman2099").
         /// </summary>
-        static Func<string, bool> NotPicked(EditorScene scene, Dictionary<int, int> specials)
+        static Func<string, bool> NotPicked(EditorScene scene, Dictionary<int, int> specials, Dictionary<int, string> names)
         {
             var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (scene.OriginalScene is GScene_4F gscene)
                 foreach (var lod in gscene.CharacterData)
                     foreach (var layer in lod.LayerMetadata.GroupBy(m => (int)m.Layer))
                     {
-                        if (!specials.TryGetValue(layer.Key, out int mask)) continue;
+                        bool masked = specials.TryGetValue(layer.Key, out int mask), named = names.TryGetValue(layer.Key, out string? name);
+                        if (!masked && !named) continue;
                         int k = 0;
                         foreach (var meta in layer)
                         {
-                            if (meta.SpecialIndex >= 0 && meta.SpecialIndex < gscene.DisplayScene.SpecialObjects.Count && (mask >> k & 1) == 0)
-                                hidden.Add(gscene.DisplayScene.SpecialObjects[meta.SpecialIndex].Name);
+                            if (meta.SpecialIndex >= 0 && meta.SpecialIndex < gscene.DisplayScene.SpecialObjects.Count)
+                            {
+                                string objectName = gscene.DisplayScene.SpecialObjects[meta.SpecialIndex].Name;
+                                if (named ? !objectName.Equals(name, StringComparison.OrdinalIgnoreCase) : (mask >> k & 1) == 0)
+                                    hidden.Add(objectName);
+                            }
                             k++;
                         }
                     }
