@@ -38,6 +38,8 @@ namespace Diorama.Editor
             ["LEFT_ARM"] = 24, ["LEFT_LEG"] = 25, ["LEFT_HAND"] = 26,
             // SUPER_MINIFIG_TPAGE_COMBINED (civilians, goons): one texture page for the whole body, the .CD's material 1
             ["TPAGE"] = 1, ["GLASSES_LEFT"] = 9, ["GLASSES_RIGHT"] = 9,
+            // LEGO Marvel's Avengers' minifig spells one without the underscore
+            ["RIGHTARM"] = 5,
         };
 
         /// <summary>The in-game model of the LODs a character carries (0 is the cutscene one).</summary>
