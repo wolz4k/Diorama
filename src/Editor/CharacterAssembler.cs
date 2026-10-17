@@ -16,7 +16,8 @@ namespace Diorama.Editor
         string? Remap = null, string? RemapMaterial = null);
 
     /// <summary>A part a character wears: its model (.GHG, or .GSC plus the object in it), locator, tint and own materials' tints.</summary>
-    public record LookPart(string Name, string? Model, string? Object, int Locator, int? Layer, string? Tint, List<LookMaterial> Materials);
+    public record LookPart(string Name, string? Model, string? Object, int Locator, int? Layer, string? Tint, List<LookMaterial> Materials,
+        List<int>? PartLayers = null, Dictionary<int, int>? Specials = null);
 
     /// <summary>What a character looks like (Flux's CharacterLook, read from its .CD with every file resolved).</summary>
     public record CharacterLook(string Character, string? Body, List<int> Layers, List<LookMaterial> Materials, List<LookPart> Parts, List<string> Notes);
@@ -106,12 +107,6 @@ namespace Diorama.Editor
             {
                 // A part shows when its layer does (Arsenal's bow only comes out to shoot); the face always does.
                 if (shown.Count > 0 && part.Layer is int layer && layer != HeadLayer && !shown.Contains(layer)) continue;
-                // A cape's rest pose is spread up like a collar; the game lets it hang through its animation, which isn't played here.
-                if (part.Layer is CapeLayer or ComplexCapeLayer)
-                {
-                    problems.Add($"{part.Name} (a cape) isn't shown: it only hangs right when animated.");
-                    continue;
-                }
                 if (part.Model == null || !File.Exists(part.Model))
                 {
                     problems.Add($"{part.Name} wasn't found.");
@@ -130,6 +125,13 @@ namespace Diorama.Editor
                 }
                 scene.Name = part.Name;
                 scene.OnlyObject = part.Object;
+                // A cape shows the layers and the one cape shape its own .CD picks (CAPE_DX11 holds a dozen), hung down the back.
+                if (part.Layer is CapeLayer or ComplexCapeLayer)
+                {
+                    if (part.PartLayers is { Count: > 0 } partLayers) scene.ShownLayers = partLayers.ToHashSet();
+                    if (part.Specials != null) scene.HiddenObject = NotPicked(scene, part.Specials);
+                    CapePose.Hang(scene, problems);
+                }
                 // A face with features (eyes, mouth) shows its simplest smile; a textured face surface (Bane's mask) its game LOD.
                 scene.FixedLod = part.Layer == HeadLayer && !part.Materials.Any(m => m.Textures.Count > 0) ? FaceLod : GameLod;
                 // Every part is pulled slightly forwards, so a face beats the head it lies on while a hat, pulled as much,
@@ -182,16 +184,18 @@ namespace Diorama.Editor
                         foreach (var material in scene.Materials) Paint(material, m with { Tint = headTint }, problems);
                         continue;
                     }
-                    // A rigid part's textured material (Riddler's bowler: green with its "?") is painted like a body part.
-                    // Its number is the scene's material index (Johnny Quick's helmet is 0, its see-through visor 1).
-                    if (m.Textures.Count > 0 && part.Object != null)
+                    // A rigid part's textured material (Riddler's bowler: green with its "?") is painted like a body part, and
+                    // so is a cape's (Black Adam's gold one, CAPE_BLACKADAM; its _ALPHA cut-out isn't drawn). Its number is the
+                    // scene's material index when it has that many (Johnny Quick's helmet is 0, its see-through visor 1).
+                    if (m.Textures.Count > 0 && (part.Object != null || part.Layer is CapeLayer or ComplexCapeLayer))
                     {
                         var own = m.Id >= 0 && m.Id < scene.Materials.Count ? Key(scene.Materials[m.Id].Name) : null;
                         foreach (var material in scene.Materials.Where(x => own != null
                             ? Key(x.Name).Equals(own, StringComparison.OrdinalIgnoreCase)
                             : !SeeThrough(x)))
                         {
-                            Paint(material, m, problems);
+                            if (part.Layer is CapeLayer or ComplexCapeLayer) FillLayers(material, m, problems);
+                            else Paint(material, m, problems);
                             // Its other layer tints still colour the parts its vertex colours pick (Johnny Quick's yellow wings).
                             for (int k = 1; m.Tints != null && k < m.Tints.Count && k < 4; k++)
                                 if (Colour(m.Tints[k]) is { } layerTint && !IsWhite(layerTint * tint))
@@ -217,6 +221,29 @@ namespace Diorama.Editor
                 scenes.Add(scene);
             }
             return scenes;
+        }
+
+        /// <summary>
+        /// The objects a part's layer specials leave out: each mask has a bit per object of its layer, in the file's order
+        /// (CAPE_BAT's -4095 sets bit 0 of layer 0: BatCape_Mesh, not the other eleven capes).
+        /// </summary>
+        static Func<string, bool> NotPicked(EditorScene scene, Dictionary<int, int> specials)
+        {
+            var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (scene.OriginalScene is GScene_4F gscene)
+                foreach (var lod in gscene.CharacterData)
+                    foreach (var layer in lod.LayerMetadata.GroupBy(m => (int)m.Layer))
+                    {
+                        if (!specials.TryGetValue(layer.Key, out int mask)) continue;
+                        int k = 0;
+                        foreach (var meta in layer)
+                        {
+                            if (meta.SpecialIndex >= 0 && meta.SpecialIndex < gscene.DisplayScene.SpecialObjects.Count && (mask >> k & 1) == 0)
+                                hidden.Add(gscene.DisplayScene.SpecialObjects[meta.SpecialIndex].Name);
+                            k++;
+                        }
+                    }
+            return hidden.Contains;
         }
 
         /// <summary>
@@ -288,7 +315,7 @@ namespace Diorama.Editor
             var baseTint = Colour(look.Tint);
             var layers = look.Textures
                 .Select((path, i) => (Path: path, Slot: look.Slots != null && i < look.Slots.Count ? look.Slots[i] : 0))
-                .Where(t => t.Slot < 4 && !Name(t.Path).Contains("BRDF") && !Name(t.Path).Contains("_NRM") && !Name(t.Path).Contains("_GLOW"))
+                .Where(t => t.Slot < 4 && !Name(t.Path).Contains("BRDF") && !Name(t.Path).Contains("_NRM") && !Name(t.Path).Contains("_GLOW") && !Name(t.Path).Replace("_DX11", "").EndsWith("_ALPHA"))
                 .OrderBy(t => t.Slot).ToList();
             if (layers.Count == 0 && (over == null || over.Count == 0))
             {
@@ -362,7 +389,10 @@ namespace Diorama.Editor
             }
             // Its textures go over the .CD's colour for the material (Black Adam's bolt and belt on his black chest, on its
             // second layer; the first is a 4x4 white stand-in).
-            var images = new[] { match.Diffuse0, match.Diffuse1, match.Diffuse2 }
+            // Only layers laid over normally (blend 1): Black Adam's third is a glow mask, black but for the bolt, added as
+            // light, and painting it hid his chest's lines and belt.
+            var original = match.Original;
+            var images = new[] { match.Diffuse0, original.layerBlendDiffuse == 1 ? match.Diffuse1 : null, original.layerBlendDiffuse1 == 1 ? match.Diffuse2 : null }
                 .Select(t => t?.Original is { ImageHeader: { } header, Data: { } data } ? DdsDecoder.Decode([.. header, .. data]) : null)
                 .OfType<DecodedImage>().Where(i => i.Width > 4 || i.Height > 4).ToList();
             if (images.Count == 0)
@@ -371,6 +401,39 @@ namespace Diorama.Editor
                 return;
             }
             Paint(material, look with { Textures = new(), Slots = new() }, problems, images);
+        }
+
+        /// <summary>
+        /// Puts each of a .CD material's textures in the scene material's diffuse layer of the same slot, tinted by that
+        /// layer's tint, for the shader to blend by vertex colour as the game does: a cape's Cape_MAT has three layers,
+        /// and CAPE_BLACKADAM (slot 0) and CAPE_BLACKADAM_ALPHA (slot 1) fill the first two.
+        /// </summary>
+        static void FillLayers(EditorMaterial material, LookMaterial look, List<string> problems)
+        {
+            for (int i = 0; i < look.Textures.Count; i++)
+            {
+                string path = look.Textures[i];
+                int slot = look.Slots != null && i < look.Slots.Count ? look.Slots[i] : 0;
+                if (slot > 2 || Name(path).Contains("BRDF") || Name(path).Contains("_NRM") || Name(path).Contains("_GLOW")) continue;
+                DecodedImage? image;
+                try { image = DdsDecoder.Decode(File.ReadAllBytes(path)); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { image = null; }
+                if (image == null)
+                {
+                    problems.Add($"Couldn't read {System.IO.Path.GetFileName(path)}.");
+                    continue;
+                }
+                var texture = RenderTexture.FromRgba(image.Rgba, image.Width, image.Height, System.IO.Path.GetFileName(path));
+                switch (slot)
+                {
+                    case 0: material.Diffuse0 = texture; break;
+                    case 1: material.Diffuse1 = texture; break;
+                    case 2: material.Diffuse2 = texture; break;
+                }
+            }
+            for (int k = 0; look.Tints != null && k < look.Tints.Count && k < 3; k++)
+                if (Colour(look.Tints[k]) is { } layerTint)
+                    SetLayerColour(material, k, layerTint);
         }
 
         static string Name(string path) => System.IO.Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
