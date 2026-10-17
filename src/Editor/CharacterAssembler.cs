@@ -137,6 +137,9 @@ namespace Diorama.Editor
                 // Every part is pulled slightly forwards, so a face beats the head it lies on while a hat, pulled as much,
                 // still covers the face by its real depth.
                 scene.DepthBias = true;
+                // A face's MAT_OCCLUDE only blocks: its open mouth's insides behind it don't show (the bigfigs' detailed faces).
+                foreach (var material in scene.Materials.Where(x => x.Name.Contains("OCCLUDE", StringComparison.OrdinalIgnoreCase)))
+                    material.DepthOnly = true;
                 // Its layers' own depth biases count from its lowest, so a face's mask stays on the head, under Kite Man's
                 // goggles, and only its eyes and mouth rise over the mask.
                 // (A minifig's only: a bigfig's face lies deeper in its head and needs the whole pull, Steppenwolf's.)

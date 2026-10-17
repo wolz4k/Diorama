@@ -201,8 +201,18 @@ namespace Diorama.Rendering
                 scene.AddRenderables(ctx);
 
                 SetDepthBias(scene);
+                // Occluders first, into the depth buffer only: a face's MAT_OCCLUDE hides its open mouth's insides behind
+                // it, leaving the head there to show (it would otherwise draw as a white patch).
+                var occluders = ctx.Opaque.OfType<EditorGeometryObject>().Where(o => o.Material?.DepthOnly == true).ToList();
+                if (occluders.Count > 0)
+                {
+                    GL.ColorMask(false, false, false, false);
+                    foreach (var obj in occluders) obj.Draw(blendShader, ctx);
+                    GL.ColorMask(true, true, true, true);
+                }
                 foreach (var obj in ctx.Opaque)
                 {
+                    if (obj is EditorGeometryObject { Material.DepthOnly: true }) continue;
                     obj.Draw(blendShader, ctx);
 
                     if (obj == Controller.SelectedHierarchyObject)

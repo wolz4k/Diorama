@@ -53,6 +53,12 @@ namespace Diorama.Editor.Material
         /// </summary>
         public float DepthBiasBase { get; set; }
 
+        /// <summary>
+        /// Drawn into the depth buffer only, before the rest: a face's MAT_OCCLUDE, which hides the inside of its open
+        /// mouth so the head behind shows. Not saved.
+        /// </summary>
+        public bool DepthOnly { get; set; }
+
         public RenderTexture Diffuse0 { get; set; }
         public RenderTexture Diffuse1 { get; set; }
         public RenderTexture Diffuse2 { get; set; }
