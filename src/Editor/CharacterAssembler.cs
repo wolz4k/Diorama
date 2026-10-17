@@ -137,8 +137,12 @@ namespace Diorama.Editor
                 scene.DepthBias = true;
                 // Its layers' own depth biases count from its lowest, so a face's mask stays on the head, under Kite Man's
                 // goggles, and only its eyes and mouth rise over the mask.
-                float lowest = scene.Materials.Count > 0 ? scene.Materials.Min(x => x.Original.KDepthBias * x.Original.KDepthBiasScale) : 0;
-                foreach (var material in scene.Materials) material.DepthBiasBase = lowest;
+                // (A minifig's only: a bigfig's face lies deeper in its head and needs the whole pull, Steppenwolf's.)
+                if (part.Layer == HeadLayer && scene.Materials.Count > 0)
+                {
+                    float lowest = scene.Materials.Min(x => x.Original.KDepthBias * x.Original.KDepthBiasScale);
+                    foreach (var material in scene.Materials) material.DepthBiasBase = lowest;
+                }
                 // On its locator, whose number picks one of the body's points of interest. A skinned part (face, hair,
                 // cape) hangs from its root bone, so the root's own bind pose is taken off first.
                 // An additional model (no locator) is skinned to the body's own skeleton and laid out on its layers
@@ -201,9 +205,10 @@ namespace Diorama.Editor
                     // Only the tintable materials when the part has some (Catwoman's goggle frame isn't), else all (the Flash's hat).
                     var tints = m.Tints ?? new List<string?> { m.Tint };
                     var opaque = scene.Materials.Where(x => !SeeThrough(x)).ToList();
-                    // A face with none flagged colours just its skin (Simon Baz's MAT_Skin, not his green mask or eyes).
+                    // A face with none flagged takes no tint: its colours are its own (Simon Baz's skin is brown in its
+                    // vertex colours; his .CD's dark brown on top made it black).
                     var targets = opaque.Any(Tintable) ? opaque.Where(Tintable)
-                        : part.Layer == HeadLayer && opaque.Any(IsSkin) ? opaque.Where(IsSkin) : opaque;
+                        : part.Layer == HeadLayer ? Enumerable.Empty<EditorMaterial>() : opaque;
                     foreach (var material in targets)
                         for (int k = 0; k < tints.Count && k < 4; k++)
                             if (Colour(tints[k]) is { } layerTint && !IsWhite(layerTint * tint))
@@ -220,9 +225,6 @@ namespace Diorama.Editor
         /// </summary>
         static bool Tintable(EditorMaterial material) => material.Original.materialFlags_tintable != 0
             && !SeeThrough(material);
-
-        /// <summary>A face's skin material (MAT_Skin), which takes the face's skin tint.</summary>
-        static bool IsSkin(EditorMaterial material) => material.Name.Contains("SKIN", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// A lens or visor, which keeps its own colour: HAT_JOHNNY_TRANSPARENT_MAT, or Gentleman Ghost's goggles ("Glass",
