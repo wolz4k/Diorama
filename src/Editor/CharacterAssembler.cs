@@ -18,7 +18,7 @@ namespace Diorama.Editor
     /// <summary>A part a character wears: its model (.GHG, or .GSC plus the object in it), locator, tint and own materials' tints.</summary>
     public record LookPart(string Name, string? Model, string? Object, int Locator, int? Layer, string? Tint, List<LookMaterial> Materials,
         List<int>? PartLayers = null, Dictionary<int, int>? Specials = null, List<float>? Offset = null,
-        Dictionary<int, string>? SpecialNames = null);
+        Dictionary<int, string>? SpecialNames = null, string? Pose = null);
 
     /// <summary>What a character looks like (Flux's CharacterLook, read from its .CD with every file resolved).</summary>
     public record CharacterLook(string Character, string? Body, List<int> Layers, List<LookMaterial> Materials, List<LookPart> Parts, List<string> Notes);
@@ -135,7 +135,7 @@ namespace Diorama.Editor
                     if (part.PartLayers is { Count: > 0 } partLayers) scene.ShownLayers = partLayers.ToHashSet();
                     if (part.Specials != null || part.SpecialNames != null)
                         scene.HiddenObject = NotPicked(scene, part.Specials ?? new(), part.SpecialNames ?? new());
-                    CapePose.Hang(scene, problems);
+                    CapePose.Hang(scene, problems, part.Pose != null && File.Exists(part.Pose) ? part.Pose : null);
                 }
                 // A face with features (eyes, mouth) shows its simplest smile; a textured face surface (Bane's mask) its game LOD.
                 scene.FixedLod = part.Layer == HeadLayer && !part.Materials.Any(m => m.Textures.Count > 0) ? FaceLod : GameLod;

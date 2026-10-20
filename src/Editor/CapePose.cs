@@ -9,16 +9,16 @@ namespace Diorama.Editor
 {
     /// <summary>
     /// Hangs a cape. A cape model (CAPE_DX11) rests as a flat sheet lying straight back from the neck, and the game lets
-    /// it fall through an animation (BASIC_CAPE_MINIFG's IDLE_DEF.AN4, in a compressed format nothing here reads yet).
-    /// Its skeleton is three chains down the sheet (Cape_Left1/3/5, Cape_Centre1/3/5, Cape_Right1/3/5), so bending each
-    /// chain down at its joints and skinning the sheet to them gives the hanging cape. Render thread only.
+    /// it fall through its idle animation (BASIC_CAPE_MINIFG's IDLE_DEF.AN4): its skeleton (three chains down the sheet,
+    /// Cape_Left1/3/5, Cape_Centre1/3/5, Cape_Right1/3/5) is posed at that animation's first frame and the sheet skinned
+    /// to it. Without the animation, each chain is bent down by an estimate. Render thread only.
     /// </summary>
     public static class CapePose
     {
         /// <summary>How far each chain bends down at its first joint (the shoulders) and at its third (mid-back), in degrees.</summary>
         const float ShoulderBend = 76, BackBend = 10;
 
-        public static void Hang(EditorScene scene, List<string> problems)
+        public static void Hang(EditorScene scene, List<string> problems, string? animation = null)
         {
             if (scene.OriginalScene is not GScene_4F gscene || gscene.CharacterData.Count == 0)
                 return;
@@ -27,18 +27,64 @@ namespace Diorama.Editor
             if (count == 0 || data.Inv_Wt == null || data.Inv_Wt.Count < count)
                 return;
 
-            // Each joint's bind position, and where its posed sheet goes: its own bend (about the X axis, through the
-            // joint, sending the sheet's +z (backwards) down) after its parent's.
+            // The idle fits CAPE_DX11's 13 joints; a complex cape (31) lists the same set, so it's bent by the estimate.
+            var posed = (animation != null ? Animated(data, animation) : null) ?? Bent(data);
+            Skin(scene, posed, problems);
+        }
+
+        static Matrix4x4 Inverse(NuMtx mtx)
+        {
+            var m = mtx.mtx;
+            return new Matrix4x4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
+        }
+
+        /// <summary>
+        /// The skinning matrices for the pose the cape's own idle sways about (BASIC_CAPE_MINIFG's IDLE_DEF.AN4): each joint's
+        /// animated local transform after its parent's. The animation's z axis is the mesh's mirrored, so z is flipped
+        /// back (translations' z, and rotations' x and y). Null when the animation doesn't fit the cape's skeleton.
+        /// </summary>
+        static Matrix4x4[]? Animated(NuCharacterData data, string animation)
+        {
+            int count = data.JointData.Count;
+            var pose = Core.Filetypes.ANIM.An4Animation.AveragePose(animation, count);
+            if (pose == null || pose.Count != count)
+                return null;
+            var world = new Matrix4x4[count];
             var posed = new Matrix4x4[count];
             for (int j = 0; j < count; j++)
             {
-                var m = data.Inv_Wt[j].mtx;
-                var inverse = new Matrix4x4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
-                Matrix4x4.Invert(inverse, out var bind);
+                var (t, q, s) = pose[j];
+                var local = Matrix4x4.CreateScale(s)
+                    * Matrix4x4.CreateFromQuaternion(new Quaternion(-q.X, -q.Y, q.Z, q.W))
+                    * Matrix4x4.CreateTranslation(t.X, t.Y, -t.Z);
+                int parent = data.JointData[j].ParentIndex;
+                world[j] = parent < j ? local * world[parent] : local;
+                posed[j] = Inverse(data.Inv_Wt[j]) * world[j];
+            }
+            return posed;
+        }
+
+        /// <summary>
+        /// An estimate when there's no animation to read: each chain bent down at its first joint (the shoulders) and at
+        /// its third (mid-back), about the X axis through the joint, sending the sheet's +z (backwards) down.
+        /// </summary>
+        static Matrix4x4[] Bent(NuCharacterData data)
+        {
+            int count = data.JointData.Count;
+            var posed = new Matrix4x4[count];
+            for (int j = 0; j < count; j++)
+            {
+                Matrix4x4.Invert(Inverse(data.Inv_Wt[j]), out var bind);
                 var bend = Matrix4x4.CreateRotationX(Bend(data.JointData[j].Name) * MathF.PI / 180, bind.Translation);
                 int parent = data.JointData[j].ParentIndex;
                 posed[j] = parent < j ? bend * posed[parent] : bend;
             }
+            return posed;
+        }
+
+        /// <summary>Moves every skinned mesh of the scene by the joints' matrices, weighted by its vertices' bone weights.</summary>
+        static void Skin(EditorScene scene, Matrix4x4[] posed, List<string> problems)
+        {
 
             var done = new Dictionary<NuRenderMesh, Rendering.RenderMesh>();
             foreach (var geo in scene.AllGeometry().ToList())
