@@ -539,6 +539,8 @@ namespace Diorama.Editor
                         {
                             EditorSpecialObject obj = (EditorSpecialObject)editorScene.SpecialObjects[metadata.SpecialIndex];
                             obj.LODGroup = i;
+                            obj.Layer = metadata.Layer;
+                            if (metadata.Type == 0 && metadata.JointIndex != 255) obj.HangJoint = metadata.JointIndex;
 
                             string layerName = metadata.Layer < lodGroup.Layers.Count ? lodGroup.Layers[metadata.Layer].Name ?? "" : "";
                             obj.IsBreakup = IsBreakupLayer(layerName);
@@ -618,23 +620,27 @@ namespace Diorama.Editor
         }
 
         /// <summary>
-        /// Breakup parts are rigid, unskinned meshes stored relative to the character's hips (joint 1), so drawn as they are
-        /// they sit a hip height below the body. Each is drawn with its LOD's bind-pose hips matrix (the inverse of
-        /// Inv_Wt[1]); that's only the editor's transform, the file's own (zero) one is kept.
+        /// Rigid, unskinned character meshes are stored relative to the joint they hang on: breakup parts on the hips
+        /// (joint 1), others (a minifig's hips, hip studs and glasses) on their layer's joint. Drawn as they are, they sit
+        /// at the model's feet. Each is drawn with its LOD's bind-pose matrix for that joint (the inverse of Inv_Wt[joint]);
+        /// that's only the editor's transform, the file's own (zero) one is kept.
         /// </summary>
         private static void PlaceBreakupParts(EditorScene editorScene, GScene scene)
         {
             foreach (var sceneObject in editorScene.Objects.OfType<EditorSceneObject>())
             {
                 var special = sceneObject.SpecialObject;
-                if (special == null || !special.IsBreakup || special.LODGroup < 0 || special.LODGroup >= scene.CharacterData.Count)
+                if (special == null || special.LODGroup < 0 || special.LODGroup >= scene.CharacterData.Count)
+                    continue;
+                int joint = special.IsBreakup ? 1 : special.HangJoint;
+                if (joint < 0)
                     continue;
 
                 var inverses = scene.CharacterData[special.LODGroup].Inv_Wt;
-                if (inverses == null || inverses.Count < 2)
+                if (inverses == null || inverses.Count <= joint)
                     continue;
 
-                var m = inverses[1].mtx;
+                var m = inverses[joint].mtx;
                 var inverse = new Matrix4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
                 if (inverse.Determinant == 0)
                     continue;

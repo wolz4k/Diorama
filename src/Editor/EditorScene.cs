@@ -77,6 +77,17 @@ namespace Diorama.Editor
 
         public int CharacterLodCount { get; set; }
 
+        // Set on the scenes of an assembled character (CharacterAssembler): the body's layers its .CD shows, the one
+        // object a rigid part is in its scene, and the LOD shown whatever the LOD picker says.
+        public HashSet<int>? ShownLayers { get; set; }
+        public string? OnlyObject { get; set; }
+        public int? FixedLod { get; set; }
+        public Func<string, bool>? HiddenObject { get; set; }
+
+        // Drawn slightly in front of what it overlaps: a face's features are a thin shell over the head, whose flat
+        // strips would otherwise cut through them (the game draws faces the same way)
+        public bool DepthBias { get; set; }
+
         /// <summary>
         /// Characters hold every LOD, plus a breakup copy, on top of each other; only the picked LOD and
         /// (if asked for) its breakup parts are shown. A file made only of breakup parts is always shown.
@@ -84,10 +95,17 @@ namespace Diorama.Editor
         public bool IsShown(EditorSceneObject obj)
         {
             var special = obj.SpecialObject;
+            // A part of an assembled character that's one object of a bigger scene (a hat in its .GSC): only that object.
+            if (OnlyObject != null && !string.Equals(special?.Name, OnlyObject, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (HiddenObject != null && special?.Name is { } named && HiddenObject(named))
+                return false;
             if (special == null || special.LODGroup == -1)
                 return true;
+            if (ShownLayers != null && special.Layer >= 0 && !ShownLayers.Contains(special.Layer))
+                return false;
 
-            int lod = Math.Clamp(RenderOptions.CharacterLod, 0, Math.Max(CharacterLodCount - 1, 0));
+            int lod = Math.Clamp(FixedLod ?? RenderOptions.CharacterLod, 0, Math.Max(CharacterLodCount - 1, 0));
             if (special.LODGroup != lod)
                 return false;
 

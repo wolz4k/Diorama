@@ -200,13 +200,25 @@ namespace Diorama.Rendering
 
                 scene.AddRenderables(ctx);
 
+                SetDepthBias(scene);
+                // Occluders first, into the depth buffer only: a face's MAT_OCCLUDE hides its open mouth's insides behind
+                // it, leaving the head there to show (it would otherwise draw as a white patch).
+                var occluders = ctx.Opaque.OfType<EditorGeometryObject>().Where(o => o.Material?.DepthOnly == true).ToList();
+                if (occluders.Count > 0)
+                {
+                    GL.ColorMask(false, false, false, false);
+                    foreach (var obj in occluders) obj.Draw(blendShader, ctx);
+                    GL.ColorMask(true, true, true, true);
+                }
                 foreach (var obj in ctx.Opaque)
                 {
+                    if (obj is EditorGeometryObject { Material.DepthOnly: true }) continue;
                     obj.Draw(blendShader, ctx);
 
                     if (obj == Controller.SelectedHierarchyObject)
                         ctx.HasSelectedObject = true;
                 }
+                SetDepthBias(null);
 
                 ctxs.Add(ctx);
             }
@@ -218,6 +230,7 @@ namespace Diorama.Rendering
             {
                 ctx.Use();
 
+                SetDepthBias(ctx.Scene);
                 foreach (EditorGeometryObject obj in ctx.Transparent)
                 {
                     SetBlendMode(obj.Material.BlendMode);
@@ -225,6 +238,7 @@ namespace Diorama.Rendering
                     if (obj == Controller.SelectedHierarchyObject)
                         ctx.HasSelectedObject = true;
                 }
+                SetDepthBias(null);
                 //Console.WriteLine($"Not Drawn: {ctx.NotDrawn}");
             }
 
@@ -316,6 +330,18 @@ namespace Diorama.Rendering
                 0);
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        }
+
+        /// <summary>Pulls a scene's surfaces towards the camera when it asks for it (a face's features over the head they sit on); null turns it off.</summary>
+        private static void SetDepthBias(EditorScene? scene)
+        {
+            if (scene?.DepthBias == true)
+            {
+                GL.Enable(EnableCap.PolygonOffsetFill);
+                GL.PolygonOffset(-2f, -64f);
+            }
+            else
+                GL.Disable(EnableCap.PolygonOffsetFill);
         }
 
         private static void SetBlendMode(EditorBlendMode blendMode)

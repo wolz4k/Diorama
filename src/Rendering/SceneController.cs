@@ -570,13 +570,34 @@ namespace Diorama.Rendering
         public void AddScene(string path)
         {
             string ext = Path.GetExtension(path).ToLower();
-            if (ext == ".gsc" || ext == ".ghg")
+            if (ext == ".json")
+            {
+                // A character look (flux-cli look): the character put together from its body and parts.
+                var problems = new List<string>();
+                foreach (var part in CharacterAssembler.Assemble(CharacterAssembler.Read(path), problems)) Scenes.Add(part);
+                CameraController.FrameScenes(Scenes);
+                ShowSceneLoadProblems(problems);
+            }
+            else if (ext == ".gsc" || ext == ".ghg")
             {
                 EditorScene scene = GSceneConverter.FromGScene(path, out List<string> problems);
                 Scenes.Add(scene);
                 CameraController.FrameScenes(Scenes); // all of them, for several pieces of one area
                 ShowSceneLoadProblems(problems);
             }
+        }
+
+        /// <summary>
+        /// Shows only this character (replacing whatever was shown), framed; for a preview hosted outside Diorama's
+        /// window, so problems are returned instead of shown in a dialog. Render thread only.
+        /// </summary>
+        public List<string> ShowCharacter(CharacterLook look)
+        {
+            var problems = new List<string>();
+            Scenes.Clear();
+            foreach (var part in CharacterAssembler.Assemble(look, problems)) Scenes.Add(part);
+            CameraController.FrameScenes(Scenes);
+            return problems;
         }
 
         public void AddScene(GScene gscene, NxgTextures nxg_textures, NxgTextures? cubemap_textures)

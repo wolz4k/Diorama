@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Diorama.Core.Filetypes.GSC;
 using Diorama.Core.Filetypes.TEXTURES;
+using Diorama.Editor;
 using Diorama.Rendering;
 using Diorama.UI.Platform;
 using OpenTK.Graphics.OpenGL4;
@@ -43,6 +44,18 @@ namespace Diorama.UI.Controls
             renderService.Enqueue(() =>
             {
                 sceneController.AddScene(path);
+            });
+        }
+
+        /// <summary>Shows only this character; <paramref name="done"/> gets the problems, on the render thread.</summary>
+        public void ShowCharacter(CharacterLook look, Action<List<string>>? done = null)
+        {
+            renderService.Enqueue(() =>
+            {
+                List<string> problems;
+                try { problems = sceneController.ShowCharacter(look); }
+                catch (Exception ex) { problems = new List<string> { "Couldn't show the character: " + ex.Message }; }
+                done?.Invoke(problems);
             });
         }
 
