@@ -46,6 +46,13 @@ namespace Diorama.UI.Controls
             viewport.ShowCharacter(CharacterAssembler.FromJson(lookJson), done);
 
         /// <summary>
+        /// Where a .CD body material's texture lands on the shown character's body (see
+        /// <see cref="CharacterAssembler.BodyUvTriangles"/>): empty until a character is shown.
+        /// </summary>
+        public List<float[]> BodyUvTriangles(int materialId) =>
+            controller.Scenes.FirstOrDefault() is { } body ? CharacterAssembler.BodyUvTriangles(body, materialId) : [];
+
+        /// <summary>
         /// Outlines the largest shown piece whose scene and material names <paramref name="match"/> accepts (the torso:
         /// the body's BODY_FRONT), or nothing when none does or <paramref name="match"/> is null. UI thread.
         /// </summary>
