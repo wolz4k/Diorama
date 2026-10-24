@@ -66,6 +66,44 @@ namespace Diorama.Editor
             JsonSerializer.Deserialize<CharacterLook>(json) ?? throw new InvalidDataException("Not a character look.");
 
         /// <summary>The scenes that make up the character: the body first, then its parts.</summary>
+        /// <summary>The body's objects that aren't part of its look: the x-ray skeleton (shown when electrocuted) and the head's depth-only copy.</summary>
+        static bool NotPartOfLook(string name) => name.EndsWith("_Skeleton_Mesh", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("_Dummy_Mesh", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("ZHead", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Where a .CD body material's texture lands on the in-game model: the UVs of every triangle drawn with that
+        /// material (3 is the torso front), six numbers each (u0 v0 u1 v1 u2 v2, v down as in the texture). For a
+        /// painting guide; empty when the body has no such material. <paramref name="body"/> is an assembled body (the
+        /// first scene <see cref="Assemble"/> returns), so only its in-game LOD counts; reads no GL state.
+        /// </summary>
+        public static List<float[]> BodyUvTriangles(EditorScene body, int materialId)
+        {
+            var triangles = new List<float[]>();
+            foreach (var obj in body.Objects.OfType<EditorSceneObject>().Where(body.IsShown))
+                foreach (var geo in obj.ClipObject?.Elements ?? [])
+                {
+                    if (geo.Material?.Name is not { } name || !MaterialIds.TryGetValue(Key(name), out int id) || id != materialId) continue;
+                    if (geo.Mesh?.OriginalMesh is not { } mesh) continue;
+                    var vertices = OBJConverter.ReadVertices(mesh);
+                    var indices = OBJConverter.ReadIndices(mesh);
+                    for (int i = 0; i + 2 < indices.Length; i += 3)
+                    {
+                        var t = new float[6];
+                        for (int k = 0; k < 3; k++)
+                        {
+                            int at = indices[i + k];
+                            if (at >= vertices.Length) goto next;
+                            t[k * 2] = vertices[at].UVSet01.X;
+                            t[k * 2 + 1] = vertices[at].UVSet01.Y;
+                        }
+                        triangles.Add(t);
+                    next:;
+                    }
+                }
+            return triangles;
+        }
+
         public static List<EditorScene> Assemble(CharacterLook look, List<string> problems)
         {
             var scenes = new List<EditorScene>();
@@ -88,9 +126,7 @@ namespace Diorama.Editor
                 byId[HeadFront] = front with { Tint = back.Tint };
             body.FixedLod = GameLod;
             // The x-ray skeleton (shown when electrocuted) and the head's depth-only copy aren't part of the look.
-            body.HiddenObject = name => name.EndsWith("_Skeleton_Mesh", StringComparison.OrdinalIgnoreCase)
-                || name.EndsWith("_Dummy_Mesh", StringComparison.OrdinalIgnoreCase)
-                || name.StartsWith("ZHead", StringComparison.OrdinalIgnoreCase);
+            body.HiddenObject = NotPartOfLook;
             foreach (var material in body.Materials)
                 if (MaterialIds.TryGetValue(Key(material.Name), out int id) && byId.TryGetValue(id, out var m))
                 {
