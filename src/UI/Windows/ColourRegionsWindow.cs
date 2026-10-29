@@ -80,7 +80,7 @@ namespace Diorama.UI.Windows
                 TextWrapping = TextWrapping.Wrap,
                 Width = 460,
                 Text = (intro != null ? intro + "\n\n" : "") +
-                    "Pick a colour for each region of " + geo.Name + ". Most LEGO parts take their brick colour from these vertex colours; the model updates as you pick. " +
+                    "Pick a colour for each region of this part. Most LEGO parts take their brick colour from these vertex colours; the model updates as you pick. " +
                     "Click a row to see its region in pink.",
             });
             var splitRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
@@ -98,8 +98,7 @@ namespace Diorama.UI.Windows
             panel.Children.Add(buttons);
             Content = panel;
 
-            Split(split);
-        }
+            Split(split);        }
 
         void Split(RegionSplit split)
         {
