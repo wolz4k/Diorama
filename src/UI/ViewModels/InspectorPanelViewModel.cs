@@ -79,6 +79,14 @@ namespace Diorama.UI.ViewModels
                 }
             }
             geo.Mesh = newMesh;
+
+            if (notes != null)
+            {
+                // the texture the OBJ comes with, before the closing save reminder
+                var textureNotes = new List<string>();
+                ObjTexture.Apply(path, geo, scene, textureNotes);
+                notes.InsertRange(Math.Max(0, notes.Count - 1), textureNotes);
+            }
             return sharing;
         }
 

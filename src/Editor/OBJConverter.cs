@@ -993,6 +993,10 @@ namespace Diorama.Editor
                     geo.Mesh = mesh;
             }
 
+            // a single object from elsewhere brings its texture too (a multi-part export's textures are the game's own)
+            if (matched != null && replaced is [int one] && geometry.FirstOrDefault(g => g.Mesh?.OriginalMesh == meshes[one]) is { } part)
+                ObjTexture.Apply(path, part, scene, notes);
+
             return notes;
         }
     }

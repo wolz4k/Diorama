@@ -56,6 +56,53 @@ namespace Diorama.Tests
         }
 
         [TestMethod]
+        public void ObjTextureBecomesAGameTexture()
+        {
+            // an OBJ from elsewhere naming a PNG in its .MTL, with a picture for another part beside it
+            string dir = Path.Combine(Path.GetTempPath(), "DioramaObjTexture_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                using (var bitmap = new SkiaSharp.SKBitmap(300, 200))
+                {
+                    for (int y = 0; y < 200; y++)
+                        for (int x = 0; x < 300; x++)
+                            bitmap.SetPixel(x, y, x < 150 ? SkiaSharp.SKColors.Red : SkiaSharp.SKColors.Blue);
+                    using var png = bitmap.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+                    File.WriteAllBytes(Path.Combine(dir, "skin.png"), png.ToArray());
+                    File.WriteAllBytes(Path.Combine(dir, "torso.png"), png.ToArray());
+                }
+                File.WriteAllLines(Path.Combine(dir, "hat.obj"), ["mtllib hat.mtl", "o Hat", "v 0 0 0", "v 1 0 0", "v 0 1 0", "vt 0 0", "usemtl Skin", "f 1/1 2/1 3/1"]);
+                File.WriteAllLines(Path.Combine(dir, "hat.mtl"), ["newmtl Other", "map_Kd torso.png", "newmtl Skin", "Kd 1 1 1", @"map_Kd -s 1 1 1 C:\elsewhere\skin.png"]);
+
+                string? picture = Diorama.Editor.ObjTexture.Find(Path.Combine(dir, "hat.obj"));
+                Assert.AreEqual(Path.Combine(dir, "skin.png"), picture);
+
+                var (textures, _) = Load(@"CHARS\SUPER_CHARACTER\HAT\HAT_ARES_DX11.NXG_TEXTURES");
+                var old = textures.TextureSet.Textures.First(t => t.Data != null && t.Width > 0);
+                uint oldFourCC = old.FourCC;
+                var made = Diorama.Editor.ObjTexture.Build(picture!, old, out var notes);
+
+                Assert.AreEqual(256, made.Width);
+                Assert.AreEqual(256, made.Height);
+                Assert.AreEqual(9, made.MipCount);
+                Assert.AreEqual(9u, old.Header.Level); // the entry now counts the new image's mipmaps
+                Assert.AreEqual(oldFourCC == 0x35545844 ? 0x35545844u : 0x31545844u, made.FourCC);
+                Assert.AreEqual(1, notes.Count); // it was scaled to a power of two
+
+                var decoded = DdsDecoder.Decode(made.ImageHeader.Concat(made.Data).ToArray());
+                Assert.IsNotNull(decoded);
+                int left = (128 * 256 + 20) * 4, right = (128 * 256 + 230) * 4;
+                Assert.IsTrue(decoded.Rgba[left] > 200 && decoded.Rgba[left + 2] < 50, "left half red");
+                Assert.IsTrue(decoded.Rgba[right + 2] > 200 && decoded.Rgba[right] < 50, "right half blue");
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+
+        [TestMethod]
         public void NonDdsFileIsRefused()
         {
             using var file = new RawFile(new MemoryStream(new byte[256], false));
