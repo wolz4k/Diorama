@@ -1,4 +1,5 @@
 using Diorama.Core.Filetypes.GSC.Components;
+using Diorama.Core.Filetypes.TEXTURES;
 using Diorama.Rendering;
 using System;
 using System.Collections.Generic;
@@ -24,6 +25,9 @@ namespace Diorama.Editor
         private readonly List<MeshState> meshes = new();
         private readonly List<(EditorGeometryObject Geo, RenderMesh Mesh)> drawn = new();
 
+        // the parts' textures, since an OBJ can bring its own (ObjTexture.Apply)
+        private readonly List<(RenderTexture Texture, NuTexture Image, uint Level, bool WasReplaced)> textures = new();
+
         /// <summary>What the replacement was, for the undo button and message ("Replace with face.obj").</summary>
         public string Label { get; }
 
@@ -43,6 +47,9 @@ namespace Diorama.Editor
             }
             foreach (var geo in scene.AllGeometry())
                 snapshot.drawn.Add((geo, geo.Mesh));
+            foreach (var texture in scene.AllGeometry().Select(g => g.Material?.Diffuse0).Distinct())
+                if (texture?.Original?.Header != null && !RenderTexture.IsWhitePlaceholder(texture))
+                    snapshot.textures.Add((texture, texture.Original, texture.Original.Header.Level, texture.IsReplaced));
             return snapshot;
         }
 
@@ -71,6 +78,15 @@ namespace Diorama.Editor
             }
             foreach (var (geo, mesh) in drawn)
                 geo.Mesh = mesh;
+            foreach (var (texture, image, level, wasReplaced) in textures)
+            {
+                if (ReferenceEquals(texture.Original, image)) continue;
+                if (wasReplaced)
+                    texture.Reload(image);
+                else
+                    texture.RestoreAsRead();
+                image.Header.Level = level;
+            }
         }
     }
 }

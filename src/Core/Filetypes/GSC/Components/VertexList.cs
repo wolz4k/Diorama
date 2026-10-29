@@ -91,7 +91,7 @@ namespace Diorama.Core.Filetypes.GSC.Components
             file.WriteArray(VerticesDump);
         }
 
-        private static int SizeOf(VertexDefinitionStorageEnum storage)
+        public static int SizeOf(VertexDefinitionStorageEnum storage)
         {
             return ((VertexDefinitionStorageEnum)((int)storage & 0xf)) switch
             {

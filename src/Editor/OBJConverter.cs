@@ -23,6 +23,9 @@ namespace Diorama.Editor
         public bool HasUVs;
         public bool HasColours;
 
+        /// <summary>The material (usemtl) each vertex was used with, or null before any; for colours kept in the .MTL.</summary>
+        public List<string?> VertexMaterials = new();
+
         public int Triangles => Indices.Count / 3;
     }
 
@@ -74,8 +77,9 @@ namespace Diorama.Editor
             List<Vector2> uvs = new();
             List<Vector3> colors = new();
 
-            Dictionary<(int v, int vt, int vn), int> vertexMap = new();
+            Dictionary<(int v, int vt, int vn, string? mat), int> vertexMap = new();
             List<int> face = new();
+            string? material = null;
 
             int lineNumber = 0;
             foreach (string rawLine in lines)
@@ -110,6 +114,9 @@ namespace Diorama.Editor
                                 colors.Add(Vector3.One);
                             }
                             break;
+                        case "usemtl":
+                            material = line.Length > 7 ? line[7..].Trim() : null;
+                            break;
                         case "vn":
                             normals.Add(new Vector3(ParseFloat(split[1]), ParseFloat(split[2]), ParseFloat(split[3])));
                             break;
@@ -129,10 +136,11 @@ namespace Diorama.Editor
                                 if (vt >= 0) data.HasUVs = true;
                                 if (vn >= 0) data.HasNormals = true;
 
-                                var key = (v, vt, vn);
+                                var key = (v, vt, vn, material);
                                 if (!vertexMap.TryGetValue(key, out int index))
                                 {
                                     index = data.Vertices.Count;
+                                    data.VertexMaterials.Add(material);
                                     data.Vertices.Add(new Vertex
                                     {
                                         Position = positions[v],
@@ -267,6 +275,105 @@ namespace Diorama.Editor
             return notes;
         }
 
+        /// <summary>
+        /// The inner radius of the opening a head part leaves for the head, as <see cref="HeadOpening"/> measures it:
+        /// about the median over the game's hats and hair (Batman's cowl 0.047, the baseball cap 0.043, Atom's helmet
+        /// 0.047, the afro 0.042, balding hair 0.044, Doctor Strange's hood 0.051).
+        /// </summary>
+        public const float HeadOpeningRadius = 0.045f;
+
+        /// <summary>
+        /// How high the inside of a head part's opening reaches, where it meets the top of the head: about the median over the
+        /// game's hats and hair (the cowl 0.013, the cap 0.010, the hood 0.008, the afro 0.009, balding hair 0.016,
+        /// Atom's helmet 0.027). Head parts have their origin in the middle of the head.
+        /// </summary>
+        public const float HeadCeiling = 0.012f;
+
+        /// <summary>Hats, hair and beards: parts drawn around the middle of the head, rigid (.GSC) or skinned (.GHG).</summary>
+        public static bool IsHeadPart(string? scenePath)
+        {
+            string folder = Path.GetFileName(Path.GetDirectoryName(scenePath ?? "") ?? "").ToUpperInvariant();
+            return folder is "HAT" or "HAIR" or "SKINNEDHAT" or "SKINNEDHAIR" or "SKINNEDBEARD";
+        }
+
+        /// <summary>
+        /// A head part's opening for the head: its radius (the nearest the vertices of its lowest fifth come to its
+        /// vertical centre line, 5th percentile so a stray vertex doesn't count), that centre line, and how high the inside
+        /// reaches (the lowest vertex within the opening). Null when it has no opening: the radius is under a third of its
+        /// half width (a crest, a solid prop), or nothing is above the opening.
+        /// </summary>
+        static (float Radius, float X, float Z, float Ceiling)? HeadOpening(IReadOnlyList<Vector3> points, Vector3 min, Vector3 max)
+        {
+            float top = min.Y + (max.Y - min.Y) / 5;
+            var lowest = points.Where(p => p.Y <= top).ToList();
+            if (lowest.Count < 20)
+                return null;
+            var (lMin, lMax) = Bounds(lowest);
+            float cx = (lMin.X + lMax.X) / 2, cz = (lMin.Z + lMax.Z) / 2;
+            float Radius(Vector3 p) => MathF.Sqrt((p.X - cx) * (p.X - cx) + (p.Z - cz) * (p.Z - cz));
+
+            var radii = lowest.Select(Radius).OrderBy(r => r).ToList();
+            float radius = radii[radii.Count / 20];
+            if (radius < Math.Max(max.X - min.X, max.Z - min.Z) / 2 * 0.35f)
+                return null;
+
+            var inside = points.Where(p => Radius(p) < radius * 0.8f).Select(p => p.Y).ToList();
+            return inside.Count < 5 ? null : (radius, cx, cz, inside.Min());
+        }
+
+        /// <summary>
+        /// Moves and scales an imported mesh that clearly wasn't made where the old part is (another program's units, or
+        /// modelled on a whole figure), so it lands on the part. A head part is fitted to the head through its opening: sized
+        /// so the opening is the game's, and placed so the inside meets the top of the head. Anything else is centred on the
+        /// old part with the bottoms lined up, and sized to it when the sizes are far apart. An OBJ that already sits on the
+        /// old part (one exported from Diorama and edited) is left exactly as it is. Returns a note saying what was done, or null.
+        /// </summary>
+        public static string? FitPlacement(ObjMeshData obj, Vertex[] original, bool headPart)
+        {
+            if (original.Length == 0 || obj.Vertices.Count == 0)
+                return null;
+
+            var points = obj.Vertices.Select(v => v.Position).ToList();
+            var (oMin, oMax) = Bounds(original.Select(v => v.Position));
+            var (nMin, nMax) = Bounds(points);
+            Vector3 oSize = oMax - oMin, nSize = nMax - nMin;
+            float oLen = oSize.Length(), nLen = nSize.Length();
+            if (oLen <= 0 || nLen <= 0)
+                return null;
+
+            Vector3 oCentre = (oMin + oMax) / 2, nCentre = (nMin + nMax) / 2;
+            float ratio = nLen / oLen;
+            bool far = Vector3.Distance(oCentre, nCentre) > Math.Max(oLen, nLen) * 0.75f;
+            if (!far && ratio <= 2.5f && ratio >= 0.4f)
+                return null;
+
+            float scale = 1;
+            Vector3 anchor, target;
+            string how;
+            if (headPart && HeadOpening(points, nMin, nMax) is { } opening)
+            {
+                scale = HeadOpeningRadius / opening.Radius;
+                anchor = new(opening.X, opening.Ceiling, opening.Z);
+                target = new(0, HeadCeiling, 0);
+                how = "it was fitted to the minifig head: sized so its opening for the head is the game's, and placed so the inside meets the top of the head";
+            }
+            else
+            {
+                if (ratio > 2f || ratio < 0.5f)
+                    scale = oLen / nLen;
+                anchor = new(nCentre.X, nMin.Y, nCentre.Z);
+                target = new(oCentre.X, oMin.Y, oCentre.Z);
+                how = "it was moved onto the old part (centred, bottoms lined up)" + (scale != 1 ? " and sized to match it" : ", keeping its own size");
+            }
+
+            foreach (var v in obj.Vertices)
+                v.Position = (v.Position - anchor) * scale + target;
+
+            return $"The OBJ wasn't made where this part is (another program's units or placement), so {how}" +
+                $"{(scale != 1 ? $" (scaled by {scale:0.###})" : "")}. Check how it sits in game. To place it yourself instead, " +
+                "export this part (Export Parts) and line yours up with it in Blender: an OBJ that already sits on the part is left as it is.";
+        }
+
         static (Vector3 min, Vector3 max) Bounds(IEnumerable<Vector3> points)
         {
             Vector3 min = new(float.MaxValue), max = new(float.MinValue);
@@ -341,11 +448,32 @@ namespace Diorama.Editor
             }
         }
 
-        public static RenderMesh MeshFromOBJ(string path, RenderMesh originalMesh, EditorScene scene, out List<string> notes)
-        {
-            ObjMeshData obj = ParseOBJ(File.ReadLines(path));
+        public static RenderMesh MeshFromOBJ(string path, RenderMesh originalMesh, EditorScene scene, out List<string> notes) =>
+            MeshFromOBJ(path, originalMesh, scene, out notes, out _);
 
-            notes = ReplaceMeshData(originalMesh.OriginalMesh, obj, Path.GetFileName(path), scene.OriginalScene.MeshSceneBlock.Meshes);
+        /// <summary>Replaces a mesh from an .OBJ or a .UEMODEL; <paramref name="colours"/> says where its vertex colours came from.</summary>
+        public static RenderMesh MeshFromOBJ(string path, RenderMesh originalMesh, EditorScene scene, out List<string> notes, out ColourSource colours)
+        {
+            ObjMeshData obj;
+            List<string> found = new();
+            if (UEModel.IsUEModel(path))
+            {
+                obj = UEModel.Read(path, out found);
+                colours = obj.HasColours ? ColourSource.Mask : ColourSource.None;
+            }
+            else
+            {
+                obj = ParseOBJ(File.ReadLines(path));
+                colours = obj.HasColours ? ColourSource.VertexColours : ColourSource.None;
+                if (VertexColours.FromMaterials(obj, path) is { } fromMaterials)
+                {
+                    found.Add(fromMaterials);
+                    colours = ColourSource.Materials;
+                }
+            }
+
+            notes = ReplaceMeshData(originalMesh.OriginalMesh, obj, Path.GetFileName(path), scene.OriginalScene.MeshSceneBlock.Meshes, IsHeadPart(scene.OriginalScene.Path));
+            notes.InsertRange(Math.Min(notes.Count, notes.Count > 1 && notes[1].StartsWith("The OBJ wasn't made") ? 2 : 1), found);
             notes.Add(SaveReminder);
 
             return BuildRenderMesh(originalMesh.OriginalMesh, scene);
@@ -392,15 +520,21 @@ namespace Diorama.Editor
 
         /// <param name="allMeshes">Every mesh of the scene, to keep buffers this mesh shares with others valid; without it the
         /// mesh always gets buffers of its own.</param>
-        public static List<string> ReplaceMeshData(NuRenderMesh nuMesh, ObjMeshData obj, string fileName, NuRenderMesh[]? allMeshes = null)
+        /// <param name="headPart">The scene is a hat, hair or beard (<see cref="IsHeadPart"/>), so a mesh made elsewhere is sized to the head.</param>
+        public static List<string> ReplaceMeshData(NuRenderMesh nuMesh, ObjMeshData obj, string fileName, NuRenderMesh[]? allMeshes = null, bool headPart = false)
         {
             Vertex[] original = ReadVertices(nuMesh);
             int originalTriangles = (int)nuMesh.IndicesCount / 3;
+
+            // before anything is taken from the nearest original vertex, so colours, weights and expressions come from the right place
+            string? placed = FitPlacement(obj, original, headPart);
 
             var layout = nuMesh.VertexBuffers.SelectMany(b => b.Definitions).Select(d => d.Variable);
             var (carried, kept) = RemapBlendShapes(nuMesh, original, obj.Vertices);
             List<string> notes = FitToOriginal(obj, original, layout, kept > 0);
             notes.Insert(0, $"Imported {obj.Vertices.Count:N0} vertices and {obj.Triangles:N0} triangles from {fileName} (the original had {original.Length:N0} vertices and {originalTriangles:N0} triangles).");
+            if (placed != null)
+                notes.Insert(1, placed);
             if (carried > 0)
                 notes.Add($"This part has {carried} blend shape{(carried == 1 ? "" : "s")} (facial expressions): each new vertex moves like the nearest original vertex, so the expressions carry over. Check them in game; new geometry far from the old face won't move.");
 
@@ -683,7 +817,7 @@ namespace Diorama.Editor
         /// Replaces every mesh named in a multi-part .OBJ (see <see cref="PartName"/>). <paramref name="transforms"/>
         /// holds the transform each part was exported with, which is undone here. Returns notes for the modder.
         /// </summary>
-        public static List<string> ReplaceParts(NuRenderMesh[] meshes, List<(string Name, ObjMeshData Data)> objects, IReadOnlyDictionary<int, Matrix4x4> transforms, out List<int> replaced)
+        public static List<string> ReplaceParts(NuRenderMesh[] meshes, List<(string Name, ObjMeshData Data)> objects, IReadOnlyDictionary<int, Matrix4x4> transforms, out List<int> replaced, bool headPart = false)
         {
             List<string> notes = new();
             replaced = new();
@@ -720,10 +854,10 @@ namespace Diorama.Editor
 
                 try
                 {
-                    var partNotes = ReplaceMeshData(meshes[index.Value], data, name, meshes);
+                    var partNotes = ReplaceMeshData(meshes[index.Value], data, name, meshes, headPart);
                     replaced.Add(index.Value);
                     notes.Add($"{name}: now {data.Vertices.Count:N0} vertices and {data.Triangles:N0} triangles.");
-                    notes.AddRange(partNotes.Where(n => n.StartsWith("Warning") || n.StartsWith("The OBJ has no")).Select(n => $"{name}: {n}"));
+                    notes.AddRange(partNotes.Where(n => n.StartsWith("Warning") || n.StartsWith("The OBJ has no") || n.StartsWith("The OBJ wasn't made")).Select(n => $"{name}: {n}"));
                 }
                 catch (InvalidDataException ex)
                 {
@@ -767,6 +901,23 @@ namespace Diorama.Editor
                     m.M41, m.M42, m.M43, m.M44);
             }
             return transforms;
+        }
+
+        /// <summary>The meshes drawn right now (the picked character LOD, breakup parts if they're on), as <see cref="ExportParts"/> writes them.</summary>
+        static List<int> ShownMeshes(EditorScene scene, NuRenderMesh[] meshes)
+        {
+            List<int> shown = new();
+            foreach (var sceneObject in scene.Objects.OfType<EditorSceneObject>().Where(scene.IsShown))
+            {
+                var clip = sceneObject.ClipObject ?? sceneObject.Lods?.FirstOrDefault()?.ClipObject;
+                foreach (var geo in clip?.Elements ?? [])
+                {
+                    int index = Array.IndexOf(meshes, geo.Mesh?.OriginalMesh);
+                    if (index >= 0 && !shown.Contains(index))
+                        shown.Add(index);
+                }
+            }
+            return shown;
         }
 
         /// <summary>
@@ -851,7 +1002,20 @@ namespace Diorama.Editor
             var meshes = scene.OriginalScene.MeshSceneBlock.Meshes;
             var objects = ParseOBJObjects(File.ReadLines(path));
 
-            var notes = ReplaceParts(meshes, objects, PartTransforms(scene, meshes), out var replaced);
+            // One object from elsewhere (not named for a mesh) and one part on show: it can only mean that part.
+            string? matched = null;
+            if (objects.Count == 1 && MeshIndexFromName(objects[0].Name) == null && ShownMeshes(scene, meshes) is [int only])
+            {
+                matched = $"{(objects[0].Name == "" ? "The OBJ's object" : objects[0].Name)} isn't named for a part, but this scene shows only one part, so it replaced that one.";
+                objects[0] = (PartName(objects[0].Name, only), objects[0].Data);
+            }
+            string? fromMaterials = matched != null ? VertexColours.FromMaterials(objects[0].Data, path) : null;
+
+            var notes = ReplaceParts(meshes, objects, PartTransforms(scene, meshes), out var replaced, IsHeadPart(scene.OriginalScene.Path));
+            if (matched != null)
+                notes.Insert(1, matched);
+            if (fromMaterials != null)
+                notes.Insert(2, fromMaterials);
 
             var geometry = scene.AllGeometry().ToList();
             foreach (int index in replaced)
@@ -861,8 +1025,25 @@ namespace Diorama.Editor
                     geo.Mesh = mesh;
             }
 
+            // a single object from elsewhere brings its texture too (a multi-part export's textures are the game's own)
+            if (matched != null && replaced is [int one] && geometry.FirstOrDefault(g => g.Mesh?.OriginalMesh == meshes[one]) is { } part)
+                ObjTexture.Apply(path, part, scene, notes, fromMaterials != null ? ColourSource.Materials : objects[0].Data.HasColours ? ColourSource.VertexColours : ColourSource.None);
+
             return notes;
         }
+    }
+
+    /// <summary>Where an imported mesh's vertex colours came from.</summary>
+    public enum ColourSource
+    {
+        /// <summary>None of its own: copied from the nearest original vertex.</summary>
+        None,
+        /// <summary>The OBJ's vertex colours.</summary>
+        VertexColours,
+        /// <summary>The OBJ's material colours (Kd), one per material.</summary>
+        Materials,
+        /// <summary>A .UEMODEL's colour mask, as placeholder greys to be coloured.</summary>
+        Mask,
     }
 
     public class ObjPart

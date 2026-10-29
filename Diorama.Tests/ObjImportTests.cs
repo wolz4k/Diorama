@@ -162,6 +162,72 @@ namespace Diorama.Tests
             Assert.IsTrue(Vector3.Distance(saved.CentreExtents[1].AsVector3(), oldExtents.AsVector3() * 2) < 1e-2f, $"extents {saved.CentreExtents[1]}");
         }
 
+        private static (Vector3 Min, Vector3 Max) Bounds(IEnumerable<Vertex> vertices)
+        {
+            Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+            foreach (var v in vertices)
+            {
+                min = Vector3.Min(min, v.Position);
+                max = Vector3.Max(max, v.Position);
+            }
+            return (min, max);
+        }
+
+        [TestMethod]
+        public void HatFromAnotherProgramIsFittedToTheHead()
+        {
+            // Batman's cowl as another program would have it: bigger units, standing on a figure's head
+            var cowl = Load(@"CHARS\SUPER_CHARACTER\HAT\HAT_BATMAN_DX11.GSC").MeshSceneBlock.Meshes[0];
+            var (cowlMin, cowlMax) = Bounds(OBJConverter.ReadVertices(cowl));
+            var obj = ExportAndParse(cowl);
+            foreach (var v in obj.Vertices)
+                v.Position = v.Position * 2.4f + new Vector3(0, 0.8f, 0);
+
+            // put on Ares's helmet, which is twice the size of most hats, so only the head can say how big it should be
+            var scene = Load(@"CHARS\SUPER_CHARACTER\HAT\HAT_ARES_DX11.GSC");
+            var helmet = scene.MeshSceneBlock.Meshes[0];
+            var notes = OBJConverter.ReplaceMeshData(helmet, obj, "cowl.obj", scene.MeshSceneBlock.Meshes, OBJConverter.IsHeadPart(scene.Path));
+            Assert.IsTrue(notes.Any(n => n.Contains("fitted to the minifig head")), string.Join("\n", notes));
+
+            var (min, max) = Bounds(OBJConverter.ReadVertices(helmet));
+            Assert.AreEqual(cowlMax.X - cowlMin.X, max.X - min.X, (cowlMax.X - cowlMin.X) * 0.1f, "width");
+            Assert.AreEqual(cowlMin.Y, min.Y, 0.01f, "bottom");
+            Assert.AreEqual(cowlMax.Y, max.Y, 0.01f, "top");
+        }
+
+        [TestMethod]
+        public void PartInOtherUnitsLandsOnTheOldPart()
+        {
+            var scene = Load(@"CHARS\ITEMS\CLAYFACE_BIGFIGMACE_DX11.GSC");
+            var mesh = scene.MeshSceneBlock.Meshes[0];
+            var (oldMin, oldMax) = Bounds(OBJConverter.ReadVertices(mesh));
+
+            var obj = ExportAndParse(mesh); // in centimetres, somewhere else
+            foreach (var v in obj.Vertices)
+                v.Position = v.Position * 100 + new Vector3(30, 50, 0);
+
+            var notes = OBJConverter.ReplaceMeshData(mesh, obj, "mace.obj");
+            Assert.IsTrue(notes.Any(n => n.Contains("moved onto the old part") && n.Contains("sized to match")), string.Join("\n", notes));
+            var (min, max) = Bounds(OBJConverter.ReadVertices(mesh));
+            Assert.IsTrue(Vector3.Distance(oldMin, min) < 1e-3f && Vector3.Distance(oldMax, max) < 1e-3f, $"{min} {max} vs {oldMin} {oldMax}");
+        }
+
+        [TestMethod]
+        public void EditedPartIsLeftWhereItIs()
+        {
+            var scene = Load(@"CHARS\SUPER_CHARACTER\HAT\HAT_BATMAN_DX11.GSC");
+            var mesh = scene.MeshSceneBlock.Meshes[0];
+            var obj = ExportAndParse(mesh);
+            foreach (var v in obj.Vertices) // made a bit bigger and nudged up in Blender
+                v.Position = v.Position * 1.3f + new Vector3(0, 0.02f, 0);
+            var expected = Bounds(obj.Vertices);
+
+            var notes = OBJConverter.ReplaceMeshData(mesh, obj, "cowl.obj", scene.MeshSceneBlock.Meshes, headPart: true);
+            Assert.IsFalse(notes.Any(n => n.Contains("wasn't made where")), string.Join("\n", notes));
+            var (min, max) = Bounds(OBJConverter.ReadVertices(mesh)); // stored as half floats
+            Assert.IsTrue(Vector3.Distance(expected.Min, min) < 1e-3f && Vector3.Distance(expected.Max, max) < 1e-3f, $"{min} {max} vs {expected}");
+        }
+
         [TestMethod]
         public void ObjWithoutColoursOrNormalsBorrowsFromTheOriginal()
         {

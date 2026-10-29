@@ -24,7 +24,7 @@ namespace Diorama.Rendering
 {
     public class SceneController : INotifyPropertyChanged
     {
-        private MainWindow MainWindow;
+        public MainWindow MainWindow { get; private set; }
 
         public ObservableCollection<EditorScene> Scenes { get; } = new();
         public IRenderer Renderer;
@@ -545,13 +545,17 @@ namespace Diorama.Rendering
             }
         }
 
-        public void ShowMessageDialog(string title, IEnumerable<string> messages)
+        public void ShowMessageDialog(string title, IEnumerable<string> messages) => ShowMessageDialog(title, messages, null);
+
+        /// <param name="then">Runs on the UI thread once the message is closed (to open the next window).</param>
+        public void ShowMessageDialog(string title, IEnumerable<string> messages, Action? then)
         {
             Dispatcher.UIThread.Post(async () =>
             {
                 MessageWindow problemModal = new MessageWindow(title, (IEnumerable<string>)messages);
 
                 await problemModal.ShowDialog(MainWindow);
+                then?.Invoke();
             });
         }
 
