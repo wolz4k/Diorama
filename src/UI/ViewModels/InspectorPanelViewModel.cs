@@ -38,7 +38,7 @@ namespace Diorama.UI.ViewModels
                 var snapshot = MeshSnapshot.Take(scene, $"Replace with {Path.GetFileName(path)}");
                 try
                 {
-                    int sharing = ReplaceOne(scene, selectedGeo, path, out var notes);
+                    int sharing = ReplaceOne(scene, selectedGeo, path, out var notes, out var colours);
                     scene.MeshUndo.Push(snapshot);
 
                     if (notes != null)
@@ -46,7 +46,16 @@ namespace Diorama.UI.ViewModels
                         if (sharing > 1)
                             notes.Insert(1, $"{sharing} objects in this scene use this mesh, and all of them now show the new one.");
                         notes.Add("Not what you wanted? Undo replace (in the inspector, or the scene's right-click menu) puts the old mesh back.");
-                        Controller.ShowMessageDialog("Mesh replaced", notes.Select(n => "• " + n));
+
+                        // regions to colour (a .UEMODEL's), or a shape with neither colours nor a texture of its own
+                        bool regions = colours == ColourSource.Mask || (colours == ColourSource.None && !isGLTF(path) && ObjTexture.Find(path) == null);
+                        if (regions)
+                            notes.Add("Next, Colour by region opens to give its regions their colours.");
+                        Controller.ShowMessageDialog("Mesh replaced", notes.Select(n => "• " + n), regions
+                            ? () => OpenColourRegions(scene, selectedGeo,
+                                colours == ColourSource.Mask ? $"{Path.GetFileName(path)} marks these regions; their colours weren't exported, so each has a placeholder grey." : $"{Path.GetFileName(path)} brought no colours or texture of its own.",
+                                offerWhite: colours == ColourSource.None, colours == ColourSource.Mask ? RegionSplit.Colours : RegionSplit.Pieces)
+                            : null);
                     }
                 }
                 catch (Exception ex)
@@ -58,15 +67,19 @@ namespace Diorama.UI.ViewModels
         }
 
         /// <summary>Replaces <paramref name="geo"/>'s mesh from the file; returns how many objects draw that mesh. Render thread only.</summary>
-        private int ReplaceOne(EditorScene scene, EditorGeometryObject geo, string path, out List<string>? notes)
+        private int ReplaceOne(EditorScene scene, EditorGeometryObject geo, string path, out List<string>? notes) =>
+            ReplaceOne(scene, geo, path, out notes, out _);
+
+        private int ReplaceOne(EditorScene scene, EditorGeometryObject geo, string path, out List<string>? notes, out ColourSource colours)
         {
             RenderMesh oldMesh = geo.Mesh;
             RenderMesh newMesh;
             notes = null;
+            colours = ColourSource.None;
             if (isGLTF(path))
                 newMesh = glTFConverter.GetObjectsFromGltf(path, oldMesh, scene);
             else
-                newMesh = OBJConverter.MeshFromOBJ(path, oldMesh, scene, out notes);
+                newMesh = OBJConverter.MeshFromOBJ(path, oldMesh, scene, out notes, out colours);
 
             // the game mesh was changed in place, so every object drawing it gets the new one
             int sharing = 0;
@@ -84,7 +97,7 @@ namespace Diorama.UI.ViewModels
             {
                 // the texture the OBJ comes with, before the closing save reminder
                 var textureNotes = new List<string>();
-                ObjTexture.Apply(path, geo, scene, textureNotes);
+                ObjTexture.Apply(path, geo, scene, textureNotes, colours);
                 notes.InsertRange(Math.Max(0, notes.Count - 1), textureNotes);
             }
             return sharing;
@@ -137,6 +150,29 @@ namespace Diorama.UI.ViewModels
                     snapshot.Restore(); // a failed import leaves the scene as it was
                     Controller.ShowMessageDialog("Could not import from file", [ex.Message]);
                 }
+            });
+        }
+
+        /// <summary>Opens Colour by region for the selected part.</summary>
+        public void ColourRegions()
+        {
+            if (Controller.SelectedGeometry is { Mesh.OriginalMesh: not null } geo)
+                OpenColourRegions(geo.Parent.SceneOwner, geo, null, offerWhite: false, RegionSplit.Auto);
+        }
+
+        private void OpenColourRegions(EditorScene scene, EditorGeometryObject geo, string? intro, bool offerWhite, RegionSplit split)
+        {
+            RenderService.Current.Enqueue(() =>
+            {
+                var snapshot = MeshSnapshot.Take(scene, $"Colour {geo.Name} by region");
+                var nuMesh = geo.Mesh.OriginalMesh;
+                var vertices = OBJConverter.ReadVertices(nuMesh);
+                var indices = OBJConverter.ReadIndices(nuMesh);
+                Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+                {
+                    var window = new Diorama.UI.Windows.ColourRegionsWindow(Controller, scene, geo, vertices, indices, snapshot, intro, offerWhite, split);
+                    await window.ShowDialog(Controller.MainWindow);
+                });
             });
         }
 

@@ -23,6 +23,9 @@ namespace Diorama.Editor
         public bool HasUVs;
         public bool HasColours;
 
+        /// <summary>The material (usemtl) each vertex was used with, or null before any; for colours kept in the .MTL.</summary>
+        public List<string?> VertexMaterials = new();
+
         public int Triangles => Indices.Count / 3;
     }
 
@@ -74,8 +77,9 @@ namespace Diorama.Editor
             List<Vector2> uvs = new();
             List<Vector3> colors = new();
 
-            Dictionary<(int v, int vt, int vn), int> vertexMap = new();
+            Dictionary<(int v, int vt, int vn, string? mat), int> vertexMap = new();
             List<int> face = new();
+            string? material = null;
 
             int lineNumber = 0;
             foreach (string rawLine in lines)
@@ -110,6 +114,9 @@ namespace Diorama.Editor
                                 colors.Add(Vector3.One);
                             }
                             break;
+                        case "usemtl":
+                            material = line.Length > 7 ? line[7..].Trim() : null;
+                            break;
                         case "vn":
                             normals.Add(new Vector3(ParseFloat(split[1]), ParseFloat(split[2]), ParseFloat(split[3])));
                             break;
@@ -129,10 +136,11 @@ namespace Diorama.Editor
                                 if (vt >= 0) data.HasUVs = true;
                                 if (vn >= 0) data.HasNormals = true;
 
-                                var key = (v, vt, vn);
+                                var key = (v, vt, vn, material);
                                 if (!vertexMap.TryGetValue(key, out int index))
                                 {
                                     index = data.Vertices.Count;
+                                    data.VertexMaterials.Add(material);
                                     data.Vertices.Add(new Vertex
                                     {
                                         Position = positions[v],
@@ -440,11 +448,32 @@ namespace Diorama.Editor
             }
         }
 
-        public static RenderMesh MeshFromOBJ(string path, RenderMesh originalMesh, EditorScene scene, out List<string> notes)
+        public static RenderMesh MeshFromOBJ(string path, RenderMesh originalMesh, EditorScene scene, out List<string> notes) =>
+            MeshFromOBJ(path, originalMesh, scene, out notes, out _);
+
+        /// <summary>Replaces a mesh from an .OBJ or a .UEMODEL; <paramref name="colours"/> says where its vertex colours came from.</summary>
+        public static RenderMesh MeshFromOBJ(string path, RenderMesh originalMesh, EditorScene scene, out List<string> notes, out ColourSource colours)
         {
-            ObjMeshData obj = ParseOBJ(File.ReadLines(path));
+            ObjMeshData obj;
+            List<string> found = new();
+            if (UEModel.IsUEModel(path))
+            {
+                obj = UEModel.Read(path, out found);
+                colours = obj.HasColours ? ColourSource.Mask : ColourSource.None;
+            }
+            else
+            {
+                obj = ParseOBJ(File.ReadLines(path));
+                colours = obj.HasColours ? ColourSource.VertexColours : ColourSource.None;
+                if (VertexColours.FromMaterials(obj, path) is { } fromMaterials)
+                {
+                    found.Add(fromMaterials);
+                    colours = ColourSource.Materials;
+                }
+            }
 
             notes = ReplaceMeshData(originalMesh.OriginalMesh, obj, Path.GetFileName(path), scene.OriginalScene.MeshSceneBlock.Meshes, IsHeadPart(scene.OriginalScene.Path));
+            notes.InsertRange(Math.Min(notes.Count, notes.Count > 1 && notes[1].StartsWith("The OBJ wasn't made") ? 2 : 1), found);
             notes.Add(SaveReminder);
 
             return BuildRenderMesh(originalMesh.OriginalMesh, scene);
@@ -980,10 +1009,13 @@ namespace Diorama.Editor
                 matched = $"{(objects[0].Name == "" ? "The OBJ's object" : objects[0].Name)} isn't named for a part, but this scene shows only one part, so it replaced that one.";
                 objects[0] = (PartName(objects[0].Name, only), objects[0].Data);
             }
+            string? fromMaterials = matched != null ? VertexColours.FromMaterials(objects[0].Data, path) : null;
 
             var notes = ReplaceParts(meshes, objects, PartTransforms(scene, meshes), out var replaced, IsHeadPart(scene.OriginalScene.Path));
             if (matched != null)
                 notes.Insert(1, matched);
+            if (fromMaterials != null)
+                notes.Insert(2, fromMaterials);
 
             var geometry = scene.AllGeometry().ToList();
             foreach (int index in replaced)
@@ -995,10 +1027,23 @@ namespace Diorama.Editor
 
             // a single object from elsewhere brings its texture too (a multi-part export's textures are the game's own)
             if (matched != null && replaced is [int one] && geometry.FirstOrDefault(g => g.Mesh?.OriginalMesh == meshes[one]) is { } part)
-                ObjTexture.Apply(path, part, scene, notes);
+                ObjTexture.Apply(path, part, scene, notes, fromMaterials != null ? ColourSource.Materials : objects[0].Data.HasColours ? ColourSource.VertexColours : ColourSource.None);
 
             return notes;
         }
+    }
+
+    /// <summary>Where an imported mesh's vertex colours came from.</summary>
+    public enum ColourSource
+    {
+        /// <summary>None of its own: copied from the nearest original vertex.</summary>
+        None,
+        /// <summary>The OBJ's vertex colours.</summary>
+        VertexColours,
+        /// <summary>The OBJ's material colours (Kd), one per material.</summary>
+        Materials,
+        /// <summary>A .UEMODEL's colour mask, as placeholder greys to be coloured.</summary>
+        Mask,
     }
 
     public class ObjPart

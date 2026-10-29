@@ -73,9 +73,15 @@ namespace Diorama.Editor
             if (width != source.Width || height != source.Height)
                 notes.Add($"{Path.GetFileName(picture)} is {source.Width} x {source.Height}; it was scaled to {width} x {height}, since the game's textures are powers of two.");
 
-            var levels = new List<DecodedImage>();
-            using (var top = source.Resize(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul), SKFilterQuality.High) ?? source)
-                levels.Add(new DecodedImage(width, height, top.Bytes));
+            using var top = source.Resize(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul), SKFilterQuality.High) ?? source;
+            return FromImage(new DecodedImage(width, height, top.Bytes), old);
+        }
+
+        /// <summary>A game texture of a power-of-two image, with mipmaps, in place of <paramref name="old"/> (see <see cref="Build"/>).</summary>
+        public static NuTexture FromImage(DecodedImage image, NuTexture old)
+        {
+            int width = image.Width, height = image.Height;
+            var levels = new List<DecodedImage> { image };
             for (int w = width, h = height; w > 1 || h > 1;)
             {
                 w = Math.Max(1, w / 2);
@@ -109,19 +115,23 @@ namespace Diorama.Editor
         /// material names on the part's texture, or, if it names none, says that the old texture now shows through the
         /// new UVs. Render thread only; <see cref="MeshSnapshot"/> undoes it with the mesh.
         /// </summary>
-        public static void Apply(string objPath, EditorGeometryObject geo, EditorScene scene, List<string> notes)
+        /// <param name="colours">Where the mesh's colours came from: colours from the file itself (its materials, a
+        /// .UEMODEL's regions) are the whole look, so without a texture of its own the part gets a plain white one.</param>
+        public static void Apply(string objPath, EditorGeometryObject geo, EditorScene scene, List<string> notes, ColourSource colours = ColourSource.None)
         {
             var texture = geo.Material?.Diffuse0;
             if (texture == null || RenderTexture.IsWhitePlaceholder(texture) || texture.Original?.Header == null)
                 return;
 
-            string? picture = Find(objPath);
+            string? picture = UEModel.IsUEModel(objPath) ? null : Find(objPath);
             if (picture == null)
             {
-                if (File.ReadLines(objPath).Any(l => l.StartsWith("vt ")))
+                if (colours is ColourSource.Materials or ColourSource.Mask)
+                    MakeWhite(geo, scene, notes, "its colours come from the file");
+                else if (File.ReadLines(objPath).Any(l => l.StartsWith("vt ")))
                     notes.Add($"The OBJ names no texture of its own, so the part shows its old one ({texture.ShortName}) through the new shape's UVs, which " +
-                        "usually looks scrambled. Give it an image in Blender (an Image Texture on its material, exported with the OBJ), or paint one " +
-                        "for its UVs and swap it in with Edit Textures.");
+                        "usually looks scrambled. Colour by region gives it plain colours (and a white texture) instead; or give it an image in Blender " +
+                        "(an Image Texture on its material, exported with the OBJ), or paint one for its UVs and swap it in with Edit Textures.");
                 return;
             }
 
@@ -159,6 +169,43 @@ namespace Diorama.Editor
             if (others > 0)
                 notes.Add($"{others} other part{(others == 1 ? " uses" : "s use")} {texture.ShortName} too and now show{(others == 1 ? "s" : "")} the new picture.");
             notes.Add("Save keeps only the shape: also use Save Textures (the scene's right-click menu) to keep the new texture.");
+        }
+
+        /// <summary>Whether the part's texture is already plain white (so painting it white again changes nothing).</summary>
+        public static bool IsPlainWhite(RenderTexture? texture) =>
+            texture?.Original is { Width: <= 8, Height: <= 8 } t && texture.IsReplaced;
+
+        /// <summary>
+        /// Gives the part a plain white texture (8 x 8, DXT1) in place of its own, so only its vertex colours show: the
+        /// old picture would show through the new shape's UVs. Render thread only; <see cref="MeshSnapshot"/> undoes it.
+        /// </summary>
+        public static void MakeWhite(EditorGeometryObject geo, EditorScene scene, List<string> notes, string why)
+        {
+            var texture = geo.Material?.Diffuse0;
+            if (texture == null || RenderTexture.IsWhitePlaceholder(texture) || texture.Original?.Header == null || IsPlainWhite(texture))
+                return;
+
+            var white = new byte[8 * 8 * 4];
+            Array.Fill(white, (byte)255);
+            var old = texture.Original;
+            uint level = old.Header.Level;
+            try
+            {
+                texture.Reload(FromImage(new DecodedImage(8, 8, white), old));
+            }
+            catch (Exception ex)
+            {
+                old.Header.Level = level;
+                notes.Add($"Couldn't give it a plain white texture ({ex.Message}).");
+                return;
+            }
+            notes.Add($"Its texture {texture.ShortName} became plain white, since {why}: the old picture would show through the new shape's UVs.");
+            var mesh = geo.Mesh?.OriginalMesh;
+            int others = scene.AllGeometry().Where(g => g.Material?.Diffuse0 == texture && g.Mesh?.OriginalMesh != mesh)
+                .Select(g => g.Mesh?.OriginalMesh).Distinct().Count();
+            if (others > 0)
+                notes.Add($"{others} other part{(others == 1 ? " uses" : "s use")} {texture.ShortName} too and now show{(others == 1 ? "s" : "")} white.");
+            notes.Add("Save keeps only the shape: also use Save Textures (the scene's right-click menu) to keep the white texture.");
         }
 
         static int PowerOfTwo(int size)

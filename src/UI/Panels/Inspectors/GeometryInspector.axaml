@@ -41,7 +41,9 @@
 
               <WrapPanel>
                 <Button Content="Replace mesh" x:Name="ReplaceMesh"
-                        ToolTip.Tip="Swap this part's shape for one from an .OBJ or .glTF file (for example, one you edited in Blender). The material stays the same. Anything an .OBJ can't hold (bone weights, vertex alpha, lightmap UVs, and colours if it has none) is copied from the nearest vertex of the old shape. A report says what was carried over."/>
+                        ToolTip.Tip="Swap this part's shape for one from an .OBJ, .glTF or .UEMODEL file (for example, one you edited in Blender, or a Fortnite LEGO piece exported with FModel). The material stays the same. Anything an .OBJ can't hold (bone weights, vertex alpha, lightmap UVs, and colours if it has none) is copied from the nearest vertex of the old shape. A report says what was carried over."/>
+                <Button Content="Colour by region" x:Name="ColourRegions"
+                        ToolTip.Tip="Give each region of this part its own brick colour: the areas that already share a colour, or each separate piece (a band of spikes, a cowl). Most LEGO parts take their colour from these vertex colours. Pick a row to see its region in pink."/>
                 <Button Content="Replace in all LODs" x:Name="ReplaceMeshAllLods"
                         IsVisible="{Binding LodNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                         ToolTip.Tip="Replace this part and the same part in the character's other LODs from one file, so every LOD shows your version. Each LOD's part is found by its material and where it sits; the report lists what was replaced, and Undo replace puts them all back."/>

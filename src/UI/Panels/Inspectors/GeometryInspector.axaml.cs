@@ -28,6 +28,10 @@ public class GeometryInspector : TemplatedControl
         if (exportMeshButton != null)
             exportMeshButton.Click += ExportMeshClick;
 
+        var colourRegionsButton = e.NameScope.Find<Button>("ColourRegions");
+        if (colourRegionsButton != null)
+            colourRegionsButton.Click += (_, _) => viewmodel?.ColourRegions();
+
         var undoReplaceButton = e.NameScope.Find<Button>("UndoReplace");
         if (undoReplaceButton != null)
             undoReplaceButton.Click += (_, _) => viewmodel?.UndoReplace();
@@ -73,8 +77,10 @@ public class GeometryInspector : TemplatedControl
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
+                    new FilePickerFileType("Models (OBJ, glTF, UEMODEL)") { Patterns = new[] { "*.OBJ", "*.glTF", "*.uemodel" } },
                     new FilePickerFileType("OBJ files") { Patterns = new[] { "*.OBJ" } },
-                    new FilePickerFileType("glTF files") { Patterns = new[] { "*.glTF" } }
+                    new FilePickerFileType("glTF files") { Patterns = new[] { "*.glTF" } },
+                    new FilePickerFileType("Unreal models from FModel (UEMODEL)") { Patterns = new[] { "*.uemodel" } }
                 }
             });
 
