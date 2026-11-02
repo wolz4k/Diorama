@@ -127,22 +127,8 @@ namespace Diorama.Editor
             long Detail(GScene_4F scene, int level) => Drawn(scene, level).DistinctBy(m => m.Mesh).Sum(m => (long)m.Mesh.IndicesCount);
             var sourceByDetail = Enumerable.Range(0, sourceLevels).OrderByDescending(l => Detail(source, l)).ToList();
             var targetByDetail = Enumerable.Range(0, Levels(target)).OrderByDescending(l => Detail(target, l)).ToList();
-            // the vertices are placed relative to their object, whose matrix may differ (Ares' hat is raised 0.013): they're
-            // moved so the part sits where its own game put it
-            var sourceObject = source.DisplayScene.SpecialObjects.FirstOrDefault(sp => sp.ClipObjectIndex < source.DisplayScene.ClipObjects.Count);
-            var targetObject = display.SpecialObjects.FirstOrDefault(sp => sp.ClipObjectIndex < display.ClipObjects.Count);
-            Matrix4x4 place = Matrix4x4.Identity;
-            if (sourceObject?.Mtx?.mtx is { Length: 16 } s && targetObject?.Mtx?.mtx is { Length: 16 } t && Matrix4x4.Invert(ToMatrix(t), out var inverse))
-                place = ToMatrix(s) * inverse;
-            Vertex Placed(Vertex v)
-            {
-                var copy = Moved(v);
-                if (place.IsIdentity) return copy;
-                copy.Position = Vector3.Transform(v.Position, place);
-                copy.Normal = Vector3.Normalize(Vector3.TransformNormal(v.Normal, place));
-                copy.Tangent = Vector3.TransformNormal(v.Tangent, place);
-                return copy;
-            }
+            // The vertices stay where they are, even when the two objects' matrices differ (Ares' hat is raised 0.013):
+            // moving Bleez's hat down by that difference put it too low in game, so the game doesn't place by it.
             for (int level = 0; level < Levels(target); level++)
             {
                 var from = Drawn(source, sourceByDetail[Math.Min(targetByDetail.IndexOf(level), sourceLevels - 1)]);
@@ -157,7 +143,7 @@ namespace Diorama.Editor
                     bool apart = separate != null && separateMaterial >= 0 && separate.Contains(material);
                     var (into, indices) = apart ? (clear, clearIndices) : (solid, solidIndices);
                     int start = into.Count;
-                    into.AddRange((read ?? OBJConverter.ReadVertices)(mesh).Select(Placed));
+                    into.AddRange((read ?? OBJConverter.ReadVertices)(mesh).Select(Moved));
                     indices.AddRange(OBJConverter.ReadIndices(mesh).Select(i => (ushort)(i + start)));
                 }
                 if (solid.Count > ushort.MaxValue || clear.Count > ushort.MaxValue)
@@ -561,9 +547,6 @@ namespace Diorama.Editor
         /// RGBA, for OBJ import), so they're swapped here first. Tried in game: Iron Man's helmet and the Blaster's lens
         /// came out blue, not red, otherwise.
         /// </summary>
-        /// <summary>A scene matrix (16 floats, translation in the 13th to 15th) as a <see cref="Matrix4x4"/>.</summary>
-        static Matrix4x4 ToMatrix(float[] m) => new(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
-
         static Vertex Moved(Vertex v)
         {
             var copy = Copy(v);
