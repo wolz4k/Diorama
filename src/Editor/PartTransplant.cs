@@ -214,8 +214,11 @@ namespace Diorama.Editor
         /// <paramref name="read"/> gives the source's vertices (with UVs already moved, say), in place of reading its meshes.
         /// With <paramref name="keepSkeleton"/> the model takes the source's skeleton too, so the other game's animations
         /// for it (an Iron Man helmet's faceplate opening) can find its joints.
+        /// With <paramref name="pieceOf"/> (a key per material of either model: a face's "Mouth", "Tongue_Eyes"…), each
+        /// piece of the source goes into this model's meshes drawn with the material of the same key instead, so a face's
+        /// mouth, eyes and teeth keep materials of their own; pieces with a key this model doesn't draw are left out.
         /// </summary>
-        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1, Func<NuRenderMesh, Vertex[]>? read = null, bool keepSkeleton = false)
+        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1, Func<NuRenderMesh, Vertex[]>? read = null, bool keepSkeleton = false, Func<GScene_4F, int, string?>? pieceOf = null)
         {
             var changedMeshes = new List<NuRenderMesh>();
             changed = changedMeshes;
@@ -263,12 +266,18 @@ namespace Diorama.Editor
                 var hung = new Dictionary<int, int>(); // rigid vertex -> the joint (of this model) its piece hangs on
                 var triangles = new List<int>();
                 var clear = new List<int>();
+                var byPiece = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
                 var hangs = HangJoints(source, Math.Min(lod, source.CharacterData.Count - 1));
                 var sourceData = source.CharacterData[0];
                 foreach (var mesh in from)
                 {
                     int start = vertices.Count;
                     var into = apart.Contains(mesh) ? clear : triangles;
+                    if (pieceOf != null)
+                    {
+                        string piece = pieceOf(source, fromDrawn.First(d => d.Mesh == mesh).Material) ?? "";
+                        if (!byPiece.TryGetValue(piece, out into!)) byPiece[piece] = into = new List<int>();
+                    }
                     // A rigid piece hung on a joint by its layer (an Iron Man helmet's shell and faceplate) is stored where
                     // that joint is: it's moved to where the joint sits at rest, and goes on it.
                     Matrix4x4? place = null;
@@ -376,6 +385,36 @@ namespace Diorama.Editor
                     if (room > 0) mesh.SkinMtxMap = map;
                     changedMeshes.Add(mesh);
                     done.Add(mesh);
+                }
+
+                if (pieceOf != null)
+                {
+                    // each piece into this model's meshes drawn with the material of its key
+                    var ownPiece = own.ToDictionary(m => m, m => pieceOf(target, drawn.First(d => d.Mesh == m).Material) ?? "");
+                    var filled = new HashSet<NuRenderMesh>();
+                    var left = new List<string>();
+                    foreach (var (piece, tris) in byPiece)
+                    {
+                        if (tris.Count == 0) continue;
+                        var slots = own.Where(m => !filled.Contains(m) && ownPiece[m].Equals(piece, StringComparison.OrdinalIgnoreCase)).ToList();
+                        var groups = slots.Count > 0 ? Group(tris, slots.Count) : new();
+                        if (slots.Count == 0 || groups.Count > slots.Count) { left.Add(piece.Length > 0 ? piece : "unnamed"); continue; }
+                        for (int g = 0; g < groups.Count; g++)
+                        {
+                            Fill(slots[g], groups[g].Triangles, groups[g].Joints, all);
+                            filled.Add(slots[g]);
+                        }
+                    }
+                    if (filled.Count == 0) continue;
+                    foreach (var extra in own.Where(m => !filled.Contains(m)).Concat(rest))
+                    {
+                        Empty(extra, vertices[0], all);
+                        changed.Add(extra);
+                        done.Add(extra);
+                    }
+                    notes.Add($"LOD {lod}: {byPiece.Count - left.Count} piece(s) of {vertices.Count:N0} vertices, each on this model's material of the same name" +
+                        (left.Count > 0 ? $"; left out (this model draws nothing like them): {string.Join(", ", left)}" : "") + ".");
+                    continue;
                 }
 
                 var solid = Group(triangles, own.Count);

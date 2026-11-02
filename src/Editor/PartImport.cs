@@ -65,6 +65,7 @@ namespace Diorama.Editor
                 throw new InvalidDataException(character
                     ? $"{Path.GetFileName(sourcePath)} is a rigid part (a hat or hair, no joints), and {Path.GetFileName(basePath)} a character part; build on one of this game's rigid parts (CHARS\\SUPER_CHARACTER\\HAT or HAIR, .GSC)."
                     : $"{Path.GetFileName(sourcePath)} is a character part (with joints), and {Path.GetFileName(basePath)} a rigid one; build on one of this game's character parts of the same kind (.GHG).");
+            if (character && FacePieces(source, target) is { } pieces) return BuildFace(source, target, sourcePath, basePath, outPath, pieces);
             string gameRoot = GameRootOf(basePath) ?? throw new InvalidDataException("The part to build on should be in this game's CHARS folder, so its material can be found.");
             // the materials the part's own meshes are drawn with (not its breakup pieces), and their automatic variants;
             // the rest (blend-shape and rigid variants, breakup materials) stay as they are, with their textures
@@ -497,6 +498,104 @@ namespace Diorama.Editor
                 if (found != null) break;
             }
             lock (donors) return donors[(gameRoot, layout, version, folder, clear, glow)] = found ?? withoutNormal;
+        }
+
+        /// <summary>
+        /// A face piece's key from its material's name: the part after MAT_, without a numbered order or variant
+        /// (LEGO Batman 3's FACE_Solomon_MAT_Tongue_Eyes and this game's MAT_5_Tongue_Eyes:SKINNED_VARIANT are both Tongue_Eyes).
+        /// </summary>
+        static string? PieceKey(GScene_4F scene, int material)
+        {
+            string? name = scene.MaterialBlock.Materials.ElementAtOrDefault(material)?.MaterialName;
+            if (string.IsNullOrEmpty(name)) return null;
+            name = name.Split(':')[0];
+            int mat = name.LastIndexOf("MAT_", StringComparison.OrdinalIgnoreCase);
+            if (mat >= 0) name = name[(mat + 4)..];
+            return System.Text.RegularExpressions.Regex.Replace(name, @"^\d+_", "");
+        }
+
+        /// <summary>
+        /// For a face (pieces drawn on materials named for what they are: Mouth, MouthBack, Tongue_Eyes, OCCLUDE…, coloured by
+        /// their vertices, with no texture, in both games): which of the base's pieces each of the source's goes on, by
+        /// name, else the base's piece nearest it in colour (LEGO Batman 3's dark EyesOuter on this game's Eyebrows_Creases).
+        /// Null when the two aren't faces like that.
+        /// </summary>
+        static Dictionary<string, string>? FacePieces(GScene_4F source, GScene_4F target)
+        {
+            Dictionary<string, Vector4> Pieces(GScene_4F scene)
+            {
+                var colours = new Dictionary<string, List<Vector4>>(StringComparer.OrdinalIgnoreCase);
+                for (int level = 0; level < PartTransplant.Levels(scene); level++)
+                    foreach (var (mesh, material, breakup) in PartTransplant.MeshesOf(scene, level))
+                    {
+                        if (breakup || PieceKey(scene, material) is not { } key) continue;
+                        if (!colours.TryGetValue(key, out var list)) colours[key] = list = new();
+                        if (level == 0) list.AddRange(OBJConverter.ReadVertices(mesh).Select(v => v.ColorSet0));
+                    }
+                return colours.ToDictionary(c => c.Key, c => c.Value.Count > 0 ? c.Value.Aggregate(Vector4.Zero, (a, b) => a + b) / c.Value.Count : Vector4.One, StringComparer.OrdinalIgnoreCase);
+            }
+            // faces only: the base shows no texture, and the two share at least two piece names
+            if (target.MaterialBlock.Materials.Where(m => m != null).Any(m => m.Diffuse0Index >= 0)) return null;
+            var from = Pieces(source);
+            var to = Pieces(target);
+            if (to.Count < 3 || from.Keys.Count(to.ContainsKey) < 2) return null;
+            return from.ToDictionary(f => f.Key, f => to.ContainsKey(f.Key) ? f.Key : to.OrderBy(t => Vector4.DistanceSquared(t.Value, f.Value)).First().Key, StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// A face from another game on this game's face (<paramref name="basePath"/>): its pieces (with their vertex colours,
+        /// weights and blend shapes) on the base's materials of the same name (<see cref="FacePieces"/>); nothing textured,
+        /// so the base's texture and shader files go with it unchanged.
+        /// </summary>
+        static List<string> BuildFace(GScene_4F source, GScene_4F target, string sourcePath, string basePath, string outPath, Dictionary<string, string> pieces)
+        {
+            var moved = PartTransplant.Transplant(source, target, out _, pieceOf: (scene, material) =>
+                PieceKey(scene, material) is { } key && scene == source ? (pieces.TryGetValue(key, out var to) ? to : null) : PieceKey(scene, material));
+            var notes = moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Warning") || n.Contains("weren't weighted")).ToList();
+
+            string outStem = Stem(outPath), baseStem = Stem(basePath);
+            string? baseDir = RelativeDir(basePath), outDir = RelativeDir(outPath);
+            string Rename(string p)
+            {
+                string dir = Path.GetDirectoryName(p) ?? "", file = Path.GetFileName(p);
+                if (file.StartsWith(baseStem, StringComparison.OrdinalIgnoreCase)) file = outStem.ToLowerInvariant() + file[baseStem.Length..];
+                if (baseDir != null && outDir != null && dir.Equals(baseDir, StringComparison.OrdinalIgnoreCase)) dir = outDir;
+                return dir.Length == 0 ? file : dir + "\\" + file;
+            }
+            target.ResourceHeader.RenameFiles(Rename);
+
+            var model = new MemoryStream();
+            using (var output = new RawFile(model)) target.Write(output, new GSerializationContext());
+            try
+            {
+                var check = new RawFile(new MemoryStream(model.ToArray(), false));
+                check.SetFileLocation(new FilesystemFileLocation(outPath));
+                GScene.Parse(check);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidDataException($"The face came out unreadable ({ex.Message}), so nothing was written; build on another face.");
+            }
+            byte[]? res = RenamedResourceFile(Path.ChangeExtension(basePath, ".GHG.RES"), Rename);
+            byte[]? shaderList = RenamedResourceFile(Path.Combine(Path.GetDirectoryName(basePath) ?? "", baseStem + ".SHADERS"), Rename);
+            byte[] textures = File.ReadAllBytes(Path.ChangeExtension(basePath, ".NXG_TEXTURES"));
+            byte[] shaders = File.ReadAllBytes(Path.ChangeExtension(basePath, ".PC_SHADERS"));
+
+            string folder = Path.GetDirectoryName(outPath) ?? "";
+            string outBase = Path.GetFileNameWithoutExtension(outPath); // X_DX11
+            File.WriteAllBytes(outPath, model.ToArray());
+            File.WriteAllBytes(Path.Combine(folder, outBase + ".NXG_TEXTURES"), textures);
+            File.WriteAllBytes(Path.Combine(folder, outBase + ".PC_SHADERS"), shaders);
+            if (res != null) File.WriteAllBytes(Path.Combine(folder, outBase + ".GHG.RES"), res);
+            if (shaderList != null) File.WriteAllBytes(Path.Combine(folder, outStem + ".SHADERS"), shaderList);
+
+            var moves = pieces.Where(p => !p.Key.Equals(p.Value, StringComparison.OrdinalIgnoreCase)).Select(p => $"{p.Key} on {p.Value}").ToList();
+            notes.Insert(0, $"Made {Path.GetFileName(outPath)} from {Path.GetFileName(sourcePath)}, a face: its shape, colours, weights and expressions on {Path.GetFileName(basePath)}, " +
+                "each piece (mouth, eyes, teeth…) on that face's material of the same name" + (moves.Count > 0 ? $" ({string.Join(", ", moves)}: nearest in colour)" : "") + ".");
+            notes.Add($"Written beside it: {outBase}.NXG_TEXTURES, {outBase}.PC_SHADERS{(res != null ? $", {outBase}.GHG.RES" : "")}{(shaderList != null ? $", {outStem}.SHADERS" : "")} (the base face's).");
+            int mask = PartTransplant.LayerMask(target);
+            notes.Add($"For the game to use it, the face's .CD (Flux) loads {outStem} (name the .CD {outStem} too), with Default Layers set to {mask}. A character's attachment then names it as its Resource File.");
+            return notes;
         }
 
         static GScene_4F Load(string path)

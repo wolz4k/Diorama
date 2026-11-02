@@ -78,7 +78,7 @@ namespace Diorama.Core.Filetypes.GSC.Components.RESH
             }
         }
 
-        static Dictionary<int, string> BuildPaths(RawFile segmentBuffer, NuResourceSegment[] segments, int pathCount)
+        static Dictionary<int, string> BuildPaths(RawFile segmentBuffer, int length, NuResourceSegment[] segments, int pathCount)
         {
             var cache = new string[segments.Length];
 
@@ -91,7 +91,9 @@ namespace Diorama.Core.Filetypes.GSC.Components.RESH
 
                 var seg = segments[index];
                 string name = string.Empty;
-                if (seg.SegmentIndex > -1)
+                // older trees (version 1, LEGO Batman 3) keep something else in the root's name slot (0x6AF87A94): a name
+                // past the buffer's end would be read forever
+                if (seg.SegmentIndex > -1 && seg.SegmentIndex < length)
                 {
                     segmentBuffer.Seek(seg.SegmentIndex, SeekOrigin.Begin);
                     name = segmentBuffer.ReadNullString();
@@ -125,7 +127,7 @@ namespace Diorama.Core.Filetypes.GSC.Components.RESH
         {
             using (RawFile segmentBuffer = new RawFile(new MemoryStream(StringBuffer)))
             {
-                return BuildPaths(segmentBuffer, Segments, FileCount);
+                return BuildPaths(segmentBuffer, StringBuffer.Length, Segments, FileCount);
             }
         }
 
