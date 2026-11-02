@@ -457,7 +457,11 @@ namespace Diorama.Editor
             Donor? found = null, withoutNormal = null;
             string first = Path.Combine(gameRoot, DonorScene);
             static bool IsFace(string f) => f.Contains(@"\FACE", StringComparison.OrdinalIgnoreCase) || f.Contains(@"\SUPER_FACE", StringComparison.OrdinalIgnoreCase);
-            var files = new[] { first }.Concat(Directory.EnumerateFiles(Path.Combine(gameRoot, "CHARS", "SUPER_CHARACTER"), "*_DX11.G*", SearchOption.AllDirectories).Where(f => f.EndsWith(".GHG", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".GSC", StringComparison.OrdinalIgnoreCase))
+            // the base part's own folder too, when it's outside SUPER_CHARACTER: items (CHARS\ITEMS) are laid out like none of
+            // the character parts (Bleez's ring found no material there)
+            var searched = new[] { Path.Combine(gameRoot, "CHARS", "SUPER_CHARACTER") }.Concat(Directory.Exists(folder) ? new[] { folder } : Array.Empty<string>());
+            var files = new[] { first }.Concat(searched.SelectMany(d => Directory.EnumerateFiles(d, "*_DX11.G*", d == folder ? SearchOption.TopDirectoryOnly : SearchOption.AllDirectories))
+                .Where(f => f.EndsWith(".GHG", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".GSC", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderByDescending(f => string.Equals(Path.GetDirectoryName(f), folder, StringComparison.OrdinalIgnoreCase)).ThenBy(IsFace).ThenBy(f => f));
             foreach (var file in files)
             {
@@ -818,6 +822,42 @@ namespace Diorama.Editor
         }
 
         /// <summary>A standalone resource-header file (X_DX11.GHG.RES, X.SHADERS) with its files renamed, or null if it isn't there.</summary>
+        /// <summary>
+        /// The name of the object a rigid model draws (its special object with a clip object), or null. A model rebuilt over
+        /// another keeps that one's (Bleez's ring over DC Super-Villains' DexStarr_Ring).
+        /// </summary>
+        public static string? ObjectName(string path)
+        {
+            var scene = LoadCopy(path);
+            return scene.DisplayScene.SpecialObjects.FirstOrDefault(sp => sp.ClipObjectIndex < scene.DisplayScene.ClipObjects.Count)?.Name;
+        }
+
+        /// <summary>
+        /// Renames the object a rigid model draws to <paramref name="name"/>: items are looked up by it, named like their
+        /// file (RINGREDMINI_DX11.GSC holds RingRedMini; 359 of DC Super-Villains' 402 item scenes do). Returns the old name, or
+        /// null when the model has no such object or names objects by index (older versions).
+        /// </summary>
+        public static string? RenameObject(string path, string name)
+        {
+            var scene = LoadCopy(path);
+            var main = scene.DisplayScene.SpecialObjects.FirstOrDefault(sp => sp.ClipObjectIndex < scene.DisplayScene.ClipObjects.Count);
+            if (main?.Name == null) return null;
+            string old = main.Name;
+            main.Name = name;
+            var model = new MemoryStream();
+            using (var output = new RawFile(model)) scene.Write(output, new GSerializationContext());
+            File.WriteAllBytes(path, model.ToArray());
+            return old;
+        }
+
+        /// <summary>A scene read from a copy in memory, so the file can be written over afterwards.</summary>
+        static GScene_4F LoadCopy(string path)
+        {
+            var input = new RawFile(new MemoryStream(File.ReadAllBytes(path), false));
+            input.SetFileLocation(new FilesystemFileLocation(path));
+            return GScene.Parse(input) as GScene_4F ?? throw new InvalidDataException($"{Path.GetFileName(path)} isn't a scene Diorama can read.");
+        }
+
         public static byte[]? RenamedResourceFile(string path, Func<string, string> rename)
         {
             if (!File.Exists(path)) return null;
