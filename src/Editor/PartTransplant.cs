@@ -225,7 +225,8 @@ namespace Diorama.Editor
         /// piece of the source goes into this model's meshes drawn with the material of the same key instead, so a face's
         /// mouth, eyes and teeth keep materials of their own; pieces with a key this model doesn't draw are left out.
         /// </summary>
-        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1, Func<NuRenderMesh, Vertex[]>? read = null, bool keepSkeleton = false, Func<GScene_4F, int, string?>? pieceOf = null)
+        public static List<string> Transplant(GScene_4F source, GScene_4F target, out List<NuRenderMesh> changed, ISet<int>? separate = null, int separateMaterial = -1, Func<NuRenderMesh, Vertex[]>? read = null, bool keepSkeleton = false, Func<GScene_4F, int, string?>? pieceOf = null,
+            IReadOnlyDictionary<int, (int Material, VertexList Layout)>? ownMaterials = null)
         {
             var changedMeshes = new List<NuRenderMesh>();
             changed = changedMeshes;
@@ -261,6 +262,9 @@ namespace Diorama.Editor
                 var fromDrawn = MeshesOf(source, Math.Min(lod, source.CharacterData.Count - 1)).Where(m => !m.Breakup).ToList();
                 var from = fromDrawn.Select(m => m.Mesh).Distinct().ToList();
                 var apart = fromDrawn.Where(m => separate != null && separate.Contains(m.Material)).Select(m => m.Mesh).ToHashSet();
+                // pieces drawn with a material of their own (scrolling fire), each in meshes laid out like that material
+                var ownOf = fromDrawn.Where(m => ownMaterials != null && ownMaterials.ContainsKey(m.Material)).GroupBy(m => m.Mesh).ToDictionary(g => g.Key, g => g.First().Material);
+                var ownTriangles = new Dictionary<int, List<int>>();
                 // this model's own meshes take the new geometry; its breakup pieces (and own meshes left over) are emptied
                 var drawn = MeshesOf(target, lod);
                 var own = drawn.Where(m => !m.Breakup).Select(m => m.Mesh).Distinct().Where(m => !done.Contains(m)).ToList();
@@ -280,7 +284,11 @@ namespace Diorama.Editor
                 {
                     int start = vertices.Count;
                     var into = apart.Contains(mesh) ? clear : triangles;
-                    if (pieceOf != null)
+                    if (ownOf.TryGetValue(mesh, out int ownMaterial) && pieceOf == null)
+                    {
+                        if (!ownTriangles.TryGetValue(ownMaterial, out into!)) ownTriangles[ownMaterial] = into = new List<int>();
+                    }
+                    else if (pieceOf != null)
                     {
                         string piece = pieceOf(source, fromDrawn.First(d => d.Mesh == mesh).Material) ?? "";
                         if (!byPiece.TryGetValue(piece, out into!)) byPiece[piece] = into = new List<int>();
@@ -451,8 +459,32 @@ namespace Diorama.Editor
                     added.MaterialIndex = (short)separateMaterial;
                     clip.Elements = clip.Elements.Append(added).ToArray();
                 }
+                // pieces with a material of their own: the same, in meshes laid out like that material
+                int ownCount = 0;
+                foreach (var (material, tris) in ownTriangles)
+                {
+                    if (tris.Count == 0) continue;
+                    var (slot, layout) = ownMaterials![material];
+                    foreach (var (groupTris, palette) in Group(tris, 1))
+                    {
+                        if (clip == null || element == null) throw new InvalidDataException($"LOD {lod}'s mesh isn't drawn by an element of its own, so no mesh can be added beside it.");
+                        var mesh = MeshLike(own[0]);
+                        mesh.VertexBuffers = new[] { new VertexList(0, (uint)layout.Definitions.Length) { Definitions = layout.Definitions, Stride = layout.Stride, VerticesDump = Array.Empty<byte>() } };
+                        mesh.VerticesCount = 0;
+                        mesh.VertexBufferFlags = new[] { 0x502u };
+                        mesh.VertexBufferOffsets = new int[1];
+                        target.MeshSceneBlock.Meshes = target.MeshSceneBlock.Meshes.Append(mesh).ToArray();
+                        all = target.MeshSceneBlock.Meshes;
+                        Fill(mesh, groupTris, palette, null);
+                        var added = CopyElement(element);
+                        added.MeshIndex = (short)(all.Length - 1);
+                        added.MaterialIndex = (short)slot;
+                        clip.Elements = clip.Elements.Append(added).ToArray();
+                        ownCount += groupTris.Count / 3;
+                    }
+                }
                 int groupCount = solid.Count;
-                notes.Add($"LOD {lod}: {from.Count} part{(from.Count == 1 ? "" : "s")} of {vertices.Count:N0} vertices and {(triangles.Count + clear.Count) / 3:N0} triangles{(groupCount > 1 ? $", in {groupCount} meshes (each holds up to {room} joints)" : "")}{(clearGroups.Count > 0 ? $"; {clear.Count / 3:N0} see-through triangles in {clearGroups.Count} mesh{(clearGroups.Count == 1 ? "" : "es")} of their own" : "")}.");
+                notes.Add($"LOD {lod}: {from.Count} part{(from.Count == 1 ? "" : "s")} of {vertices.Count:N0} vertices and {(triangles.Count + clear.Count) / 3:N0} triangles{(groupCount > 1 ? $", in {groupCount} meshes (each holds up to {room} joints)" : "")}{(clearGroups.Count > 0 ? $"; {clear.Count / 3:N0} see-through triangles in {clearGroups.Count} mesh{(clearGroups.Count == 1 ? "" : "es")} of their own" : "")}{(ownCount > 0 ? $"; {ownCount:N0} scrolling triangles in meshes of their own" : "")}.");
             }
 
             if (changed.Count == 0)

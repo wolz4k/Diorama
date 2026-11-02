@@ -98,12 +98,26 @@ namespace Diorama.Editor
             foreach (var (material, file) in textures ?? new Dictionary<int, string>())
                 given[material] = Loaded(file);
 
+            // Scrolling pieces (Bleez's wing fire: its texture slides along, Batman 3's flame material): a scrolling material of
+            // this game's, its texture whole (it repeats as it slides, so it can't be packed), and the other game's speeds.
+            // Each goes on meshes of its own laid out like that material. Without one, they're packed and hold still.
+            var scrollers = new Dictionary<int, ScrollDonor>();
+            if (character)
+                for (int i = 0; i < source.MaterialBlock.Materials.Length; i++)
+                {
+                    if (source.MaterialBlock.Materials[i] is not NuMaterialData_E0 m || !Scrolls(m) || given.ContainsKey(i)) continue;
+                    if (m.Diffuse0Index < 0 || m.Diffuse0Index >= sourceTex.Length || sourceTex[m.Diffuse0Index].Data == null || string.IsNullOrEmpty(sourceTex[m.Diffuse0Index].Header.Name)) continue;
+                    if (FindScrollDonor(gameRoot, main.Version, m.blendMode != 0) is { } scroller) scrollers[i] = scroller;
+                    else notes.Add($"{m.MaterialName}'s texture scrolls in the other game; none of this game's character parts has a scrolling material for it, so it holds still.");
+                }
+
             // glow textures (lit bits: eyes, lights), each over its material's colour texture; they need a material of
             // this game's that shows one, and the colour texture's size and compression, to be packed the same way
             var glowOf = new Dictionary<int, NuTexture>();
             float glowStrength = 0;
             for (int i = 0; i < source.MaterialBlock.Materials.Length; i++)
             {
+                if (scrollers.ContainsKey(i)) continue; // glows as it scrolls
                 var m = source.MaterialBlock.Materials[i];
                 int g = glows != null && glows.TryGetValue(i, out var file) ? Loaded(file)
                     : m is { materialFlags_glow: > 0 } && m.Diffuse1Index >= 0 && m.Diffuse1Index < sourceTex.Length && m.Diffuse1Index != m.Diffuse0Index && !string.IsNullOrEmpty(sourceTex[m.Diffuse1Index].Header.Name) ? m.Diffuse1Index : -1;
@@ -123,6 +137,7 @@ namespace Diorama.Editor
             for (int i = 0; i < source.MaterialBlock.Materials.Length; i++)
             {
                 var m = source.MaterialBlock.Materials[i];
+                if (scrollers.ContainsKey(i)) { kinds[i] = (Kind.Plain, -1); continue; }
                 int d = given.TryGetValue(i, out int g) ? g : m?.Diffuse0Index ?? -1;
                 if (d < 0 || d >= sourceTex.Length || sourceTex[d].Data == null) { kinds[i] = (Kind.Plain, -1); continue; }
                 var t = sourceTex[d];
@@ -212,6 +227,7 @@ namespace Diorama.Editor
             int clamped = 0;
             foreach (var (mesh, material) in Meshes(source))
             {
+                if (scrollers.ContainsKey(material)) continue; // keeps its own UVs, over its own texture
                 var vertices = OBJConverter.ReadVertices(mesh);
                 var (kind, tex) = kinds.TryGetValue(material, out var k) ? k : (Kind.Plain, -1);
                 // vertices laid out without colours read as black; this game's materials multiply by them, so they're white
@@ -247,7 +263,7 @@ namespace Diorama.Editor
             // added after the model's materials. Without one for this layout they're drawn solid.
             var block = target.MaterialBlock;
             var drawnSource = Enumerable.Range(0, PartTransplant.Levels(source)).SelectMany(level => PartTransplant.Drawn(source, level)).Where(m => !m.Breakup).Select(m => m.Material).ToHashSet();
-            var seeThrough = drawnSource.Where(i => i >= 0 && i < source.MaterialBlock.Materials.Length && source.MaterialBlock.Materials[i]?.blendMode is > 0).ToHashSet();
+            var seeThrough = drawnSource.Where(i => i >= 0 && i < source.MaterialBlock.Materials.Length && source.MaterialBlock.Materials[i]?.blendMode is > 0 && !scrollers.ContainsKey(i)).ToHashSet();
             Donor? clearDonor = null;
             var donorOf = new Dictionary<NuMaterialData_E0, Donor>();
             int clearSlot = -1;
@@ -268,9 +284,31 @@ namespace Diorama.Editor
                 }
             }
 
+            // the scrolling materials, after those: this game's, with the other game's scrolling (speeds and directions)
+            var ownMaterials = new Dictionary<int, (int Material, VertexList Layout)>();
+            var scrollOf = new Dictionary<NuMaterialData_E0, (ScrollDonor Donor, int Source)>();
+            var sameScroll = new Dictionary<(int, byte, byte, float, float, bool), int>(); // the other game's variants of one (Bleez's 3 flame materials) share it
+            foreach (var (i, scroller) in scrollers)
+            {
+                var from = (NuMaterialData_E0)source.MaterialBlock.Materials[i];
+                var key = (from.Diffuse0Index, from.TexAnimBlocks[0].ModeU, from.TexAnimBlocks[0].ModeV, from.TexAnimBlocks[0].SpeedU, from.TexAnimBlocks[0].SpeedV, from.blendMode != 0);
+                if (sameScroll.TryGetValue(key, out int shared)) { ownMaterials[i] = (shared, block.Materials[shared].VertexLayout); continue; }
+                sameScroll[key] = block.Materials.Length;
+                var copy = ((GScene_4F)GScene.Parse(scroller.Path)).MaterialBlock.Materials.OfType<NuMaterialData_E0>().First(m => m.MaterialName == scroller.Material);
+                copy.Parent = block;
+                copy.MaterialName = $"{Stem(outPath)}:Scrolling{(scrollOf.Count > 0 ? (scrollOf.Count + 1).ToString() : "")}";
+                copy.ChildMaterial = null;
+                // its first layer slides as the other game's first layer did (mode 2: by speed per second, in U and V)
+                var (a, b) = (from.TexAnimBlocks[0], copy.TexAnimBlocks[0]);
+                b.ModeU = a.ModeU; b.ModeV = a.ModeV; b.DU = a.DU; b.DV = a.DV; b.SpeedU = a.SpeedU; b.SpeedV = a.SpeedV;
+                ownMaterials[i] = (block.Materials.Length, copy.VertexLayout);
+                block.Materials = block.Materials.Append(copy).ToArray();
+                scrollOf[copy] = (scroller, i);
+            }
+
             // the shape and weights
             var moved = character
-                ? PartTransplant.Transplant(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot, m => remapped.TryGetValue(m, out var v) ? v : OBJConverter.ReadVertices(m), keepSkeleton)
+                ? PartTransplant.Transplant(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot, m => remapped.TryGetValue(m, out var v) ? v : OBJConverter.ReadVertices(m), keepSkeleton, null, ownMaterials)
                 : PartTransplant.TransplantRigid(source, target, out _, clearSlot >= 0 ? seeThrough : null, clearSlot, m => remapped.TryGetValue(m, out var v) ? v : OBJConverter.ReadVertices(m));
             notes.AddRange(moved.Where(n => n.StartsWith("LOD") || n.StartsWith("Level") || n.StartsWith("Warning") || n.Contains("weren't weighted")));
 
@@ -298,7 +336,7 @@ namespace Diorama.Editor
             for (int i = 0; i < block.Materials.Length; i++)
                 if (block.Materials[i] is NuMaterialData_E0 m && i < children.Count)
                     m.ChildMaterial = children[i] == null ? null : block.Materials.FirstOrDefault(x => x?.MaterialName == children[i]);
-            bool keepOwn = block.Materials.Any(m => m != null && !replaced.Contains(m));
+            bool keepOwn = block.Materials.Any(m => m != null && !replaced.Contains(m) && !(m is NuMaterialData_E0 s && scrollOf.ContainsKey(s)));
 
             // the textures: the packed one and a flat normal map, in the base part's texture file
             string outStem = Stem(outPath), baseStem = Stem(basePath);
@@ -332,6 +370,21 @@ namespace Diorama.Editor
                 made = made.Append(glow).ToArray();
             }
             int glowAt = glow != null ? (keepOwn ? nxg.TextureSet.Textures.Length : 0) + made.Length - 1 : -1;
+            // each scrolling material's texture, whole, under this part's name
+            var scrollTexture = new Dictionary<NuMaterialData_E0, (NuTexture Texture, int At)>();
+            foreach (var (m, (_, from)) in scrollOf)
+            {
+                var t = sourceTex[((NuMaterialData_E0)source.MaterialBlock.Materials[from]).Diffuse0Index];
+                var whole = new NuTexture
+                {
+                    Header = Header(headers.ElementAtOrDefault(0), prefix + "misc/" + outStem.ToLowerInvariant() + $"_scroll{scrollTexture.Count + 1}.nut"),
+                    Width = t.Width, Height = t.Height, MipCount = t.MipCount, FourCC = t.FourCC, Data = t.Data,
+                    ImageHeader = DdsHeader(template.ImageHeader, t.Width, t.Height, t.MipCount, Math.Max(1, t.Width / 4) * Math.Max(1, t.Height / 4) * (t.FourCC == 0x31545844 ? 8 : 16), t.FourCC),
+                };
+                whole.Header.Level = (uint)t.MipCount;
+                made = made.Append(whole).ToArray();
+                scrollTexture[m] = (whole, (keepOwn ? nxg.TextureSet.Textures.Length : 0) + made.Length - 1);
+            }
             // textures the donor's material binds besides those (Bane's backpack's shine): copied as they are, checksum
             // and name, so its bindings still find them
             var donorTextures = donorOf.Values.Select(d => d.Path).Distinct().ToDictionary(d => d, d => NxgTextures.Read(Path.ChangeExtension(d, ".NXG_TEXTURES")).TextureSet.Textures);
@@ -381,11 +434,27 @@ namespace Diorama.Editor
                     }
             }
 
-            // shaders: the base part's and the material's
+            // the scrolling materials show their texture, as colour and (if theirs has one) as glow
+            foreach (var (m, (from, _)) in scrollOf)
+            {
+                var (tex, at) = scrollTexture[m];
+                m.Diffuse0Index = at;
+                m.Normal0Index = -1;
+                if (from.Glow != null) m.Diffuse1Index = at;
+                foreach (var list in new[] { m.PixelFixupData, m.VertexFixupData, m.TempVertexFixupData })
+                    foreach (var h in list ?? new())
+                        if (h.Checksum.SequenceEqual(from.Diffuse) || (from.Glow != null && h.Checksum.SequenceEqual(from.Glow)))
+                        {
+                            h.Name = tex.Header.Name;
+                            h.Checksum = (byte[])tex.Header.Checksum.Clone();
+                        }
+            }
+
+            // shaders: the base part's and the materials'
             NxgShaders shaders;
             using (var f = ReadOnlyFile.Open(Path.ChangeExtension(basePath, ".PC_SHADERS"))) shaders = NxgShaders.Read(f);
             var have = shaders.ShaderCache.Select(x => x.ConfigHash).ToHashSet();
-            foreach (var path in donorOf.Values.Select(d => d.Path).Distinct())
+            foreach (var path in donorOf.Values.Select(d => d.Path).Concat(scrollOf.Values.Select(s => s.Donor.Path)).Distinct())
                 using (var f = ReadOnlyFile.Open(Path.ChangeExtension(path, ".PC_SHADERS")))
                     foreach (var x in NxgShaders.Read(f).ShaderCache)
                         if (have.Add(x.ConfigHash)) shaders.ShaderCache.Add(x);
@@ -429,6 +498,8 @@ namespace Diorama.Editor
             if (res != null) File.WriteAllBytes(Path.Combine(folder, outBase + ext + ".RES"), res);
             if (shaderList != null) File.WriteAllBytes(Path.Combine(folder, outStem + ".SHADERS"), shaderList);
 
+            foreach (var d in scrollOf.Values.Select(s => s.Donor).Distinct())
+                notes.Add($"Its scrolling pieces use {Stem(d.Path)}'s material {d.Material}, with their own texture and the other game's scrolling speed.");
             notes.Insert(0, $"Made {Path.GetFileName(outPath)} from {Path.GetFileName(sourcePath)}: its shape{(character ? ", bone weights" : "")} and textures ({(cells.Count == 0 ? "none of its own: plain colour" : cells.Count + " packed")} into one {size}x{size}{(bits.Count > 0 ? $", with {bits.Count} bit(s) of its LEGO texture page" : "")}), {(character ? $"on {Path.GetFileName(basePath)}'s skeleton" : $"in place of {Path.GetFileName(basePath)}'s")} with {Stem(donor.Path)}'s material {donor.Material}.");
             notes.Add($"Written beside it: {outBase}.NXG_TEXTURES, {outBase}.PC_SHADERS{(res != null ? $", {outBase}{ext}.RES" : "")}{(shaderList != null ? $", {outStem}.SHADERS" : "")}.");
             if (!character)
@@ -502,6 +573,53 @@ namespace Diorama.Editor
                 if (found != null) break;
             }
             lock (donors) return donors[(gameRoot, layout, version, folder, clear, glow)] = found ?? withoutNormal;
+        }
+
+        record ScrollDonor(string Path, string Material, byte[] Diffuse, byte[]? Glow);
+        static readonly Dictionary<(string Root, uint Version, bool Clear), ScrollDonor?> scrollDonors = new();
+
+        /// <summary>Whether a material's first texture layer slides (texture animation mode 2 or 3 in U or V).</summary>
+        static bool Scrolls(NuMaterialData_E0 m) => m.TexAnimData1 >= 0 && m.TexAnimBlocks[0] is { } b && (b.ModeU is 2 or 3 || b.ModeV is 2 or 3);
+
+        /// <summary>
+        /// A skinned character-part material of this game's whose first layer scrolls, showing one texture of its own file
+        /// (and, if it glows, a second one as glow) and binding nothing else; blending (see-through) if <paramref name="clear"/>.
+        /// Bane's transformation glow, in DC Super-Villains. Its vertex layout is its own: the pieces go on meshes laid out so.
+        /// </summary>
+        static ScrollDonor? FindScrollDonor(string gameRoot, uint version, bool clear)
+        {
+            lock (scrollDonors)
+                if (scrollDonors.TryGetValue((gameRoot, version, clear), out var known)) return known;
+            ScrollDonor? found = null;
+            string dir = Path.Combine(gameRoot, "CHARS", "SUPER_CHARACTER");
+            var files = Directory.Exists(dir) ? Directory.EnumerateFiles(dir, "*_DX11.GHG", SearchOption.AllDirectories).OrderBy(f => f) : Enumerable.Empty<string>();
+            foreach (var file in files)
+            {
+                if (!File.Exists(Path.ChangeExtension(file, ".NXG_TEXTURES")) || !File.Exists(Path.ChangeExtension(file, ".PC_SHADERS"))) continue;
+                GScene_4F? scene;
+                try { scene = GScene.Parse(file) as GScene_4F; } catch { continue; }
+                if (scene?.MaterialBlock?.Materials == null) continue;
+                NuTexture[]? textures = null;
+                foreach (var m in scene.MaterialBlock.Materials.OfType<NuMaterialData_E0>())
+                {
+                    if (m.MaterialName.Contains(":VARIANT") || m.Version != version || !Scrolls(m) || (m.blendMode != 0) != clear) continue;
+                    if (m.IsDecal != 0 || m.IsDeferredDecal != 0 || m.Diffuse0Index < 0 || m.Normal0Index >= 0) continue;
+                    var defs = m.VertexLayout?.Definitions;
+                    if (defs == null || !defs.Any(d => d.Variable == VertexDefinitionVariableEnum.blendIndices0) || !defs.Any(d => d.Variable == VertexDefinitionVariableEnum.uvSet01)) continue;
+                    try { textures ??= NxgTextures.Read(Path.ChangeExtension(file, ".NXG_TEXTURES"))?.TextureSet?.Textures; } catch { textures = null; }
+                    if (textures == null) break;
+                    var diffuse = m.Diffuse0Index < textures.Length ? textures[m.Diffuse0Index] : null;
+                    if (diffuse == null || string.IsNullOrEmpty(diffuse.Header.Name)) continue;
+                    var lit = m.materialFlags_glow > 0 && m.Diffuse1Index >= 0 && m.Diffuse1Index < textures.Length && m.Diffuse1Index != m.Diffuse0Index ? textures[m.Diffuse1Index] : null;
+                    var bound = new[] { m.PixelFixupData, m.VertexFixupData, m.TempVertexFixupData }.SelectMany(l => l ?? new()).Where(h => h.Checksum.Any(x => x != 0)).ToList();
+                    if (!bound.Any(h => h.Checksum.SequenceEqual(diffuse.Header.Checksum))) continue;
+                    if (bound.Any(h => !h.Checksum.SequenceEqual(diffuse.Header.Checksum) && !(lit != null && h.Checksum.SequenceEqual(lit.Header.Checksum)))) continue;
+                    found = new ScrollDonor(file, m.MaterialName, diffuse.Header.Checksum, lit?.Header.Checksum);
+                    break;
+                }
+                if (found != null) break;
+            }
+            lock (scrollDonors) return scrollDonors[(gameRoot, version, clear)] = found;
         }
 
         /// <summary>
