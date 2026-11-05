@@ -298,9 +298,12 @@ namespace Diorama.Editor
                 copy.Parent = block;
                 copy.MaterialName = $"{Stem(outPath)}:Scrolling{(scrollOf.Count > 0 ? (scrollOf.Count + 1).ToString() : "")}";
                 copy.ChildMaterial = null;
-                // its first layer slides as the other game's first layer did (mode 2: by speed per second, in U and V)
+                // Its first layer slides at the other game's speed, on the axes the donor slides on: the modes stay the
+                // donor's, as its shader is built for them (this game's only slide in V; Bleez's flames, made to slide in
+                // U and V too, held still in game). The offset per second is D x speed.
                 var (a, b) = (from.TexAnimBlocks[0], copy.TexAnimBlocks[0]);
-                b.ModeU = a.ModeU; b.ModeV = a.ModeV; b.DU = a.DU; b.DV = a.DV; b.SpeedU = a.SpeedU; b.SpeedV = a.SpeedV;
+                if (b.ModeU is 2 or 3 && a.ModeU is 2 or 3 && b.DU != 0) b.SpeedU = a.DU * a.SpeedU / b.DU;
+                if (b.ModeV is 2 or 3 && a.ModeV is 2 or 3 && b.DV != 0) b.SpeedV = a.DV * a.SpeedV / b.DV;
                 ownMaterials[i] = (block.Materials.Length, copy.VertexLayout);
                 block.Materials = block.Materials.Append(copy).ToArray();
                 scrollOf[copy] = (scroller, i);
