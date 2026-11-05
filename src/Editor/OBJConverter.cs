@@ -511,6 +511,16 @@ namespace Diorama.Editor
             return (carried, kept);
         }
 
+        /// <summary>The flag the mesh that stores <paramref name="buffer"/> gives it (0x502, or 0x503 for blend shapes); 0x502 if none does.</summary>
+        static uint OwnerFlag(VertexList buffer, NuRenderMesh[]? allMeshes)
+        {
+            foreach (var m in allMeshes ?? Array.Empty<NuRenderMesh>())
+                for (int j = 0; j < m.VertexBuffers.Length; j++)
+                    if (m.VertexBuffers[j] == buffer && m.VertexBufferFlags[j] != 0)
+                        return m.VertexBufferFlags[j];
+            return 0x502;
+        }
+
         static int Lcm(int a, int b)
         {
             int x = a, y = b;
@@ -593,9 +603,12 @@ namespace Diorama.Editor
                 else
                 {
                     nuMesh.VertexBuffers[i] = fresh;
-                    // fixes a vertex explosion; a buffer that shared another mesh's (flag 0) now stands alone, 0x503 (blend shapes) is kept
+                    // fixes a vertex explosion; a buffer that shared another mesh's (flag 0) now stands alone. It takes the
+                    // flag of the buffer it shared: 0x503 marks the buffer blend shapes are read from, and every LDC mesh
+                    // with shapes has one (a face whose shaped meshes got 0x502 crashed the game when it lunged, in a
+                    // copy of the mesh's vertices from nowhere).
                     if (nuMesh.VertexBufferFlags[i] == 0)
-                        nuMesh.VertexBufferFlags[i] = 0x502;
+                        nuMesh.VertexBufferFlags[i] = OwnerFlag(old, allMeshes);
                 }
                 nuMesh.VertexBufferOffsets[i] = 0;
             }
